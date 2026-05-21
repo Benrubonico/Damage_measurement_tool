@@ -81,8 +81,29 @@ Installable as a PWA (Progressive Web App) on any device.
 
 ### Pending work (current focus)
 
-- Phase 10 — Second portfolio project: AI pipeline on public
-  aeronautical data (NTSB/EASA reports). See roadmap section below.
+Ongoing improvements to the Damage Measurement Tool, in planned order:
+
+- Phase 10 — UX overhaul: collapsible left-side instruction panel,
+  visual refresh of the interface, move secondary controls into the
+  panel to declutter the toolbar, moveable dimensions (drag endpoints
+  of any placed dimension including the reference calibration).
+- Phase 11 — Measurement reliability heatmap: hold-to-show colour
+  gradient overlay (green at centre → yellow → red at edges) based
+  on known error model (marker position, safe zone, lens distortion).
+  Same interaction pattern as the existing "⊙ Original" button.
+- Phase 12 — Multi-marker support: detect and display all known
+  markers present in the photo, use the largest as primary scale,
+  store all corners in state as groundwork for future geometry.
+- Phase 13 — Stereometry: light 3D depth estimation from two photos
+  of the same damage (both with visible marker), aligned via marker
+  anchor, depth by triangulation. Two photos required, third optional.
+- Phase 14 — Assisted automatic damage detection (classical OpenCV,
+  no AI): Canny edge detection + contour analysis on the rectified
+  image to propose measurement endpoints. Inspector confirms or adjusts.
+
+A separate second portfolio project (AI pipeline on public
+aeronautical data) will be planned independently when the tool
+reaches maturity. It is not a phase of this project.
 
 ### Deferred to separate chats
 
@@ -117,7 +138,15 @@ Installable as a PWA (Progressive Web App) on any device.
    index.html as the access control mechanism for shared users.
    Entra ID corporate accounts (Accenture tenant) blocked by corporate
    IT policy — not usable without admin approval from Accenture IT.
-10. ⏸ Second portfolio project (phase 3 of personal roadmap).
+10. ⏸ UX overhaul: collapsible instruction panel, visual refresh,
+    moveable dimensions (next chat).
+11. ⏸ Measurement reliability heatmap: hold-to-show colour overlay
+    indicating per-zone measurement confidence. Same interaction
+    pattern as "⊙ Original" button.
+12. ⏸ Multi-marker support: detect and display all known markers,
+    use largest as primary scale.
+13. ⏸ Stereometry: light 3D depth estimation from two photos.
+14. ⏸ Assisted damage detection: Canny + contours, no AI
 
 ## Distribution strategy
 
@@ -561,10 +590,20 @@ does not imply priority.
    allow estimating depth by triangulation — the dimension the
    current pipeline does not measure. Turns the tool from "surface
    extent" into "dent volume". Software-only, no extra hardware.
-7. **Depth estimation via ARKit/ARCore LiDAR.** Alternative to
-   stereometry on iPhones Pro and some premium Android devices.
-   More precise for depth, but restricts the tool to compatible
-   hardware. Visually impressive, loses universality.
+7. **Measurement reliability heatmap (replaces LiDAR depth item).**
+   A colour-gradient overlay (green at centre → yellow → red at
+   edges) visualising where measurements are most reliable based
+   on known error sources: distance from marker, safe zone boundary,
+   and lens distortion model documented in "Experimental findings".
+   Shown only while the user holds a dedicated button — same
+   interaction pattern as the existing "⊙ Original" button — so
+   it never clutters the working image. Released immediately on
+   pointer-up or pointer-leave. No external data or hardware
+   required: the overlay is computed from information already
+   present in state (marker position, image dimensions,
+   SAFE_ZONE_RATIO, mmPerPixel). Visually effective for presenting
+   the tool and for training inspectors on correct framing.
+   Candidate for phase 14 or later once phases 10–13 are complete.
 8. **Live camera mode with continuous ArUco detection.** Real-time
    video stream where ArUco is detected on every frame and scale
    is recalibrated continuously. The inspector can frame and see
@@ -695,7 +734,7 @@ does not imply priority.
     is rare and valuable. Return materialises at 12–18 months.
     Cost: 1–2 hours/week.
 
-## How to start the next session (phase 10 — second portfolio project)
+## How to start the next session (phase 10 — UX overhaul)
 
 When opening a new chat:
 
@@ -712,21 +751,22 @@ When opening a new chat:
    whole-file replacements. Explain each fragment before presenting
    it.
 
-Phase 10 is the second portfolio project described in the personal
-roadmap (Fase 3, Oct–Nov 2026). The goal is to build a second
-publicly demonstrable project combining aeronautical domain knowledge
-with applied AI. Candidate architecture:
+Phase 10 covers four related UX improvements in one session:
 
-  PDF public reports (NTSB / EASA airworthiness directives)
-  → text extraction pipeline
-  → AI-assisted structured data extraction (Claude API or Azure OpenAI)
-  → simple dashboard or searchable output
+  1. Collapsible left-side instruction panel: a slide-in drawer
+     anchored to the left edge, visible from the measure-idle phase
+     onward, containing usage instructions, operational rules
+     (safe zone, marker selection, angle limits), and secondary
+     controls currently cluttering the toolbar.
+  2. Visual refresh: modest styling improvements to make the tool
+     look more professional without changing behaviour.
+  3. Toolbar declutter: move secondary buttons (list, clean mode,
+     save, share) into the panel, keeping only the primary action
+     buttons in the bottom bar.
+  4. Moveable dimensions: allow the user to drag either endpoint
+     of any placed dimension (including the reference calibration
+     points) to reposition it without deleting and redrawing.
 
-Key decisions to make before starting:
-- Public dataset: NTSB accident reports vs EASA Airworthiness
-  Directives vs both. Which is more relevant to Airbus inspection work?
-- AI provider: Claude API (already familiar) vs Azure OpenAI
-  (better for AZ-900 / Azure CV narrative).
-- Output format: web dashboard vs downloadable CSV vs both.
-- Hosting: same Azure SWA, or a separate resource?
-- Confidentiality: all data must be public (no Accenture/Airbus data).
+Before proposing anything, read the current button layout in
+updateButtons() and the controls div in the HTML to understand
+what exists today. Ask for those specific fragments.
