@@ -1,0 +1,29 @@
+{
+  "routes": [
+    {
+      "route": "/.auth/login/github",
+      "statusCode": 404
+    },
+    {
+      "route": "/.auth/login/twitter",
+      "statusCode": 404
+    },
+    {
+      "route": "/*",
+      "allowedRoles": ["inspector"]
+    }
+  ],
+  "responseOverrides": {
+    "401": {
+      "redirect": "/.auth/login/aad",
+      "statusCode": 302
+    },
+    "403": {
+      "rewrite": "/unauthorized.html",
+      "statusCode": 403
+    }
+  },
+  "globalHeaders": {
+    "Cache-Control": "no-store"
+  }
+}
