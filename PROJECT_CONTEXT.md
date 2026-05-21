@@ -505,6 +505,186 @@ Visual or AI-flavoured items are deliberately deferred until the
 basic flow is polished and real users are asking for them.
 **Solve the simple problem well before adding complexity.**
 
+## Detailed catalogue (consolidated, May 2026)
+
+Full enumeration of all future ideas raised across project chats,
+grouped for traceability. Some entries duplicate items already in
+"Future ideas (not in roadmap)" above; that is intentional — this
+catalogue is the consolidated index, the section above is the
+narrative discussion. Numbering is for cross-reference only and
+does not imply priority.
+
+### Block 1 — Core measurement improvements
+
+1. **Validate printed ArUco markers in the field.** ✅ Completed in
+   phase 8 (cross-reference: see "Experimental findings" above).
+   Listed here only for completeness of the catalogue.
+2. **Multi-marker support for curved or large surfaces.** A single
+   marker assumes a single plane. With two or more markers placed
+   across the piece, the geometry can be reconstructed piecewise.
+   Useful for fuselage panels with curvature or large damage areas
+   where a single marker leaves too much margin. Mathematically
+   non-trivial (interpolation between planes), but feasible and
+   pedagogically rich.
+3. **Assisted automatic damage detection.** Today the inspector
+   manually places the two endpoints of each dimension. The app
+   could propose them and the inspector only confirms. Three paths:
+   (a) classical OpenCV (Canny edge detection, adaptive thresholding,
+   contour analysis) for high-contrast defects, no AI, zero cost,
+   local processing; (b) a custom-trained model (see Block 4);
+   (c) Azure AI Vision / Custom Vision for the corporate version,
+   no data leaving Microsoft.
+4. **Temporal comparison across inspections.** If the same zone is
+   inspected periodically, the app could align successive photos
+   (using the ArUco marker as a stable anchor) and highlight new
+   defects or growth of existing ones. Valuable for scheduled
+   maintenance workflows.
+5. **Per-device lens-distortion calibration.** Today perspective
+   is corrected but residual radial distortion remains. A one-time
+   chequerboard calibration with `cv.calibrateCamera` + `cv.undistort`
+   per phone model removes it. ~15-minute setup per phone, reused
+   for every photo afterwards. Best-case error drops from 1-2 % to
+   0.3-0.5 %. Best effort/accuracy ratio of any pending measurement
+   improvement.
+6. **Stereometry: light 3D from two photos.** Two photos of the same
+   damage from slightly different angles, both with visible markers,
+   allow estimating depth by triangulation — the dimension the
+   current pipeline does not measure. Turns the tool from "surface
+   extent" into "dent volume". Software-only, no extra hardware.
+7. **Depth estimation via ARKit/ARCore LiDAR.** Alternative to
+   stereometry on iPhones Pro and some premium Android devices.
+   More precise for depth, but restricts the tool to compatible
+   hardware. Visually impressive, loses universality.
+8. **Live camera mode with continuous ArUco detection.** Real-time
+   video stream where ArUco is detected on every frame and scale
+   is recalibrated continuously. The inspector can frame and see
+   live measurements before capturing. Large conceptual phase; the
+   technical learning (video stream handling, per-frame processing,
+   sync between video and canvas) is substantial.
+
+### Block 2 — Workflow and traceability
+
+9. **Structured inspection session as first-class entity.** Today
+   each photo is independent. An "inspection" would become a
+   container: aircraft tail number, date, inspector, list of
+   documented damages, each with its photos and measurements.
+   Session ends generating a signed technical PDF report.
+   Natural fit with the corporate Microsoft 365 ecosystem.
+   Converts the tool from "measurer" into "inspection documentation
+   system".
+10. **Aircraft zone coding.** Before each photo, the inspector tags
+    the zone ("panel L-23, frame 14-15"). The system stores it as
+    metadata and allows searching historical damages by zone. Small
+    addition, large value for accumulated information.
+11. **Integration with SAP or corporate maintenance system.** When
+    the app saves a damage measurement, the data is automatically
+    pushed to the corporate ticketing or maintenance-planning system.
+    Requires IT conversations and internal API access. Converts the
+    tool from "inspector aid" into "official process component".
+12. **Damage type catalogue + convergence with existing classifier.**
+    Each damage classified (Dent, Blend-out, Rivet Pull-in, Out of
+    Contour) using the logic of the existing classification tool.
+    With automatic measurement + classification combined, the full
+    information piece the official system needs is captured in one
+    flow. The two tools would converge into one — potentially
+    multiplying the value of each in isolation.
+
+### Block 3 — Capture and image quality
+
+13. **Real-time capture assistant.** When the inspector opens the
+    camera, the app gives live feedback: "marker outside safe zone",
+    "you are tilted, straighten up", "too dark, turn on the light".
+    Requires moving part of the OpenCV pipeline to the live video
+    stream (related to item 8). Probably the highest practical-impact
+    UX improvement for real users. Drastically reduces the number of
+    unusable photos reaching the measurement step.
+14. **Oblique lighting to reveal relief.** Not a software item, but
+    worth documenting: a lateral torch at grazing angle makes dents
+    invisible under frontal light appear as clear shadows. Combined
+    with the existing perspective correction, a powerful combo.
+    Belongs in the operational rules / inspector guidelines.
+
+### Block 4 — Applied AI and custom-trained model
+
+15. **Learn Python oriented to computer vision.** Not "Python in
+    abstract" but with specific focus:
+    - `numpy` and `opencv-python` (the Python port of OpenCV, far
+      more powerful than the JS build).
+    - `Pillow` for image handling.
+    - Jupyter notebooks for visual step-by-step experimentation.
+    Realistic timeline: 4–6 weeks for fluency at 4–5 hours/week.
+    Foundation for everything else in this block.
+16. **Build a custom damage dataset.** Foundation for any training.
+    No public aerospace-damage dataset is usable. Steps: collect
+    200–500 real damage photos (variety > quantity), label them
+    with `LabelImg` or `Roboflow` (both free). **Confidentiality
+    constraint:** real aircraft damage photos are property of
+    Accenture and its clients; they CANNOT be used for personal
+    training. Equivalent damage in non-corporate contexts (car
+    bodywork, appliances, anything visually and geometrically
+    analogous) must be used instead. The technical skill is fully
+    transferable when Accenture decides to train its own model with
+    corporate data.
+17. **Train a small model with YOLOv8 or similar.** With dataset
+    prepared, train an object-detection model. `Ultralytics YOLOv8`
+    is the most accessible — a few lines of Python. Train on local
+    GPU if available, or free Google Colab GPU. Trained model size:
+    5–50 MB. Export to **ONNX** format because **ONNX Runtime Web**
+    runs ONNX models directly in the browser via JavaScript — the
+    custom model can therefore be integrated into the existing web
+    app without a server, without sending photos anywhere. Fully
+    local processing, faithful to the project's data-handling stance.
+18. **Integrate the trained model into the web app.** Port the
+    working Python model to the browser via ONNX Runtime Web. Closes
+    the learning loop: Python, applied AI, custom training, and
+    application back to the existing project. Probably the richest
+    single technical achievement possible from this learning track.
+19. **Corporate AI model for automatic classification.** Ambitious
+    extension of items 17–18: if Accenture accumulates hundreds or
+    thousands of pre-classified real damages, a custom model could
+    classify automatically ("this is a Dent of class 2") without
+    human input. Only viable when a sizeable labelled dataset
+    exists. Depends on corporate decisions, not personal ones.
+
+### Block 5 — Augmented reality and technical drawings
+
+20. **Augmented reality for historical damage location.** Pan the
+    phone over the aircraft and see historical damages of the zone
+    overlaid. Works best with LiDAR-equipped iPhones. Visually
+    impressive but the practical inspection ROI is debatable: the
+    inspector likely already knows where the damages are or has
+    faster ways to look them up.
+21. **Automatic technical drawing generation.** From the captured
+    dimensions, generate the stylised technical drawing used in
+    official reports, with dimensions formatted per Accenture's
+    or the client's standard. Converts the tool from "documenter"
+    into "formal deliverable producer". Very valuable when the
+    organisation has official templates to match.
+
+### Block 6 — Certifications and career
+
+22. **AZ-900 (Azure Fundamentals) certification.** Weekend study
+    over 1–2 months. Exam ~50 €, typically reimbursed by Accenture.
+    Provides vocabulary, panoramic understanding, and official
+    recognition. Highest short-term CV return of any single
+    investment.
+23. **AZ-204 (Developer) or AI-102 (AI Engineer) after AZ-900.**
+    Intermediate-level certification. Better fit than AZ-104
+    (infrastructure-oriented). Positions the holder as
+    "developer / AI engineer in Azure", not as systems administrator.
+
+### Block 7 — Distribution and public profile
+
+24. **Professional README of the repository.** ✅ Completed in
+    phase 8 (cross-reference: see README.md in the repository).
+    Listed here only for completeness of the catalogue.
+25. **Public learning artefacts.** Document the construction process
+    publicly (LinkedIn or a technical blog) as a career identity
+    asset. For this specific profile (self-taught, 38, applied AI
+    + computer vision + corporate environments), the combination
+    is rare and valuable. Return materialises at 12–18 months.
+    Cost: 1–2 hours/week.
+
 ## How to start the next session (phase 9 — Azure + Entra ID)
 
 When opening a new chat:
