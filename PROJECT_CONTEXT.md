@@ -10,7 +10,8 @@ single codebase.
 ## Current state
 
 A working single-file HTML/CSS/JavaScript app: `index.html`.
-Hosted on GitHub (private repo), deployed via GitHub Pages.
+Hosted on GitHub (private repo, set to private in phase 9).
+Deployed on Azure Static Web Apps (phase 9).
 Installable as a PWA (Progressive Web App) on any device.
 
 ### Implemented features
@@ -80,8 +81,8 @@ Installable as a PWA (Progressive Web App) on any device.
 
 ### Pending work (current focus)
 
-- Phase 9 — Migrate to Azure Static Web Apps with Entra ID
-  authentication. This is the next task.
+- Phase 10 — Second portfolio project: AI pipeline on public
+  aeronautical data (NTSB/EASA reports). See roadmap section below.
 
 ### Deferred to separate chats
 
@@ -108,21 +109,30 @@ Installable as a PWA (Progressive Web App) on any device.
    192×192 and 512×512). App installable and offline-capable.
    Deployed and verified on GitHub Pages:
    https://benrubonico.github.io/Medidor-danos/
-9. ⏸ Migrate to Azure Static Web Apps with Entra ID (next chat).
+9. ✅ Migrate to Azure Static Web Apps. Repo set to private on GitHub.
+   Deployed at: https://purple-bay-0a9a14e10.7.azurestaticapps.net
+   Authentication: Microsoft accounts (personal), managed via Azure
+   Role Management (role: inspector). Access granted per user manually.
+   GitHub Pages left active as fallback; AUTH_ENABLED remains true in
+   index.html as the access control mechanism for shared users.
+   Entra ID corporate accounts (Accenture tenant) blocked by corporate
+   IT policy — not usable without admin approval from Accenture IT.
+10. ⏸ Second portfolio project (phase 3 of personal roadmap).
 
 ## Distribution strategy
 
-- Primary: deployed as PWA on GitHub Pages.
-  URL: https://benrubonico.github.io/Medidor-danos/
+- Primary: deployed as PWA on Azure Static Web Apps.
+  URL: https://purple-bay-0a9a14e10.7.azurestaticapps.net
+  Access controlled via Azure Role Management (role: inspector).
+  Each user added manually by the owner. Microsoft personal accounts
+  only (Accenture corporate accounts blocked by tenant IT policy).
   Users install by opening the URL in Chrome and tapping "Install".
-  After installation, the app works offline from the home screen
-  or desktop, without needing to visit GitHub again.
-- **Future corporate hosting**: migration to Azure Static Web Apps
-  with Entra ID authentication is planned for the maturity phase,
-  to provide real corporate authentication and align with the
-  Microsoft ecosystem already in use at the organisation. The
-  application code itself does not need to change; only the
-  hosting target.
+  After installation, the app works fully offline.
+- **Future corporate hosting**: if Accenture IT ever approves the
+  Azure SWA application (a request was automatically generated when
+  a corporate account attempted login), Entra ID would allow any
+  @accenture.com account to access automatically. No code change
+  needed; only the Azure Role Management configuration would change.
 - Native APK / .exe: deferred unless a concrete reason a PWA can't
   cover emerges. Tools for that day: Capacitor (APK) or Tauri (.exe).
 
@@ -685,7 +695,7 @@ does not imply priority.
     is rare and valuable. Return materialises at 12–18 months.
     Cost: 1–2 hours/week.
 
-## How to start the next session (phase 9 — Azure + Entra ID)
+## How to start the next session (phase 10 — second portfolio project)
 
 When opening a new chat:
 
@@ -702,14 +712,21 @@ When opening a new chat:
    whole-file replacements. Explain each fragment before presenting
    it.
 
-The phase 9 plan should answer these questions before any code:
-- What does Azure Static Web Apps provide that GitHub Pages does not?
-  (answer: Entra ID authentication, custom domain, server-side rules)
-- Does the PWA service worker need changes when moving to Azure?
-  (the sw.js cache paths are relative, so likely no changes needed)
-- Does AUTH_ENABLED in index.html get disabled once Entra ID handles
-  authentication? (yes — Entra ID replaces the client-side password)
-- What is the simplest deployment path: GitHub Actions CI/CD from
-  the same repo, or manual deploy?
-- Any cost implications of Azure Static Web Apps for this usage
-  profile (low traffic, internal tool)?
+Phase 10 is the second portfolio project described in the personal
+roadmap (Fase 3, Oct–Nov 2026). The goal is to build a second
+publicly demonstrable project combining aeronautical domain knowledge
+with applied AI. Candidate architecture:
+
+  PDF public reports (NTSB / EASA airworthiness directives)
+  → text extraction pipeline
+  → AI-assisted structured data extraction (Claude API or Azure OpenAI)
+  → simple dashboard or searchable output
+
+Key decisions to make before starting:
+- Public dataset: NTSB accident reports vs EASA Airworthiness
+  Directives vs both. Which is more relevant to Airbus inspection work?
+- AI provider: Claude API (already familiar) vs Azure OpenAI
+  (better for AZ-900 / Azure CV narrative).
+- Output format: web dashboard vs downloadable CSV vs both.
+- Hosting: same Azure SWA, or a separate resource?
+- Confidentiality: all data must be public (no Accenture/Airbus data).
