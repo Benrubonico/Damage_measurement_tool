@@ -52,8 +52,8 @@ The pipeline is **2D geometric** — it measures distances on the plane of the m
 
 ## How to install (PWA)
 
-1. Open **https://benrubonico.github.io/Medidor-danos/** in Chrome (mobile or desktop).
-2. Chrome shows an install prompt (⊕ icon in the address bar on desktop, or "Add to home screen" on Android).
+1. Open **https://purple-bay-0a9a14e10.7.azurestaticapps.net** in Chrome (mobile or desktop).
+2. Sign in with your Microsoft account (access must be granted by the tool administrator first).
 3. Accept. The app icon appears on your home screen or desktop.
 4. From that point on, the app works offline.
 
@@ -117,7 +117,8 @@ All users will automatically receive the update on their next visit.
 |---|---|---|
 | 1–7 | ✅ Done | ArUco detection, perspective correction, safe zone, tilt warning |
 | 8 | ✅ Done | PWA (manifest + service worker + offline support) |
-| 9 | ⏸ Next | Azure Static Web Apps + Entra ID corporate authentication |
+| 9 | ✅ Done | Azure Static Web Apps deployment + access control via Microsoft accounts |
+| 10 | ⏸ Next | Second portfolio project: AI pipeline on public aeronautical data (NTSB/EASA) |
 
 ---
 
