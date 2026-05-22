@@ -716,7 +716,7 @@ details[open] > summary::after   { content: '▾'; }
   </div>
 </div>
 
-<div id="left-panel" class="show">
+<div id="left-panel">
   <header>
     <h3>⚙ Tools & Guide</h3>
     <button id="left-panel-close">✕</button>
@@ -1169,11 +1169,6 @@ const btnConfirmPoint  = document.getElementById('btn-confirm-point');
 const btnConfirmMeas   = document.getElementById('btn-confirm-meas');
 const btnCancelMeas    = document.getElementById('btn-cancel-meas');
 const btnAddDim        = document.getElementById('btn-add-dim');
-const btnList          = document.getElementById('btn-list');
-const btnClean         = document.getElementById('btn-clean');
-const btnSave          = document.getElementById('btn-save');
-const btnShare         = document.getElementById('btn-share');
-const btnViewOriginal  = document.getElementById('btn-view-original');
 const fabExitClean     = document.getElementById('fab-exit-clean');
 
 const modalOnboard    = document.getElementById('modal-onboard');
@@ -1825,7 +1820,6 @@ function handleTap(imgPoint) {
    ZOOM RESET + CLEAN MODE
    ============================================================ */
 fabFit.addEventListener('click', () => { resetZoom(); redraw(); });
-btnClean.addEventListener('click', () => document.body.classList.add('clean'));
 fabExitClean.addEventListener('click', () => document.body.classList.remove('clean'));
 
 
@@ -1860,15 +1854,6 @@ function stopViewOriginal() {
   state.viewingOriginal = false;
   redraw();
 }
-
-btnViewOriginal.addEventListener('mousedown',   startViewOriginal);
-btnViewOriginal.addEventListener('mouseup',     stopViewOriginal);
-btnViewOriginal.addEventListener('mouseleave',  stopViewOriginal);
-btnViewOriginal.addEventListener('touchstart',  (e) => { e.preventDefault(); startViewOriginal(); },
-                                                { passive: false });
-btnViewOriginal.addEventListener('touchend',    stopViewOriginal);
-btnViewOriginal.addEventListener('touchcancel', stopViewOriginal);
-
 
 /* ============================================================
    ONBOARDING
@@ -2078,7 +2063,6 @@ panelList.addEventListener('click', (e) => {
 });
 
 panelClose.addEventListener('click', closePanel);
-panelBackdrop.addEventListener('click', closePanel);
 
 
 /* ============================================================
@@ -2095,34 +2079,6 @@ function exportImage(callback) {
   state.scale = savedScale; state.offsetX = savedOffX; state.offsetY = savedOffY;
   updateFabFit(); redraw();
 }
-
-btnSave.addEventListener('click', () => {
-  exportImage(() => {
-    const link = document.createElement('a');
-    link.download = `dimensions-${Date.now()}.jpg`;
-    link.href = canvas.toDataURL('image/jpeg', 0.92);
-    link.click();
-  });
-});
-btnShare.addEventListener('click', () => {
-  exportImage(() => {
-    canvas.toBlob(async (blob) => {
-      const filename = `dimensions-${Date.now()}.jpg`;
-      const file = new File([blob], filename, { type: 'image/jpeg' });
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        try { await navigator.share({ files: [file], title: 'Dimensions', text: 'Damage documentation' }); }
-        catch (err) { /* cancelled */ }
-      } else {
-        const link = document.createElement('a');
-        link.download = filename;
-        link.href = URL.createObjectURL(blob);
-        link.click();
-        URL.revokeObjectURL(link.href);
-      }
-    }, 'image/jpeg', 0.92);
-  });
-});
-
 
 /* ============================================================
    PHASE MACHINE
@@ -2371,17 +2327,36 @@ btnViewOrigPanel.addEventListener('touchcancel', stopViewOriginal);
 
 btnSavePanel.addEventListener('click', () => {
   closeLeftPanel();
-  btnSave.click();
+  exportImage(() => {
+    const link = document.createElement('a');
+    link.download = `dimensions-${Date.now()}.jpg`;
+    link.href = canvas.toDataURL('image/jpeg', 0.92);
+    link.click();
+  });
 });
 btnSharePanel.addEventListener('click', () => {
   closeLeftPanel();
-  btnShare.click();
+  exportImage(() => {
+    canvas.toBlob(async (blob) => {
+      const filename = `dimensions-${Date.now()}.jpg`;
+      const file = new File([blob], filename, { type: 'image/jpeg' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        try { await navigator.share({ files: [file], title: 'Dimensions', text: 'Damage documentation' }); }
+        catch (err) { /* cancelled */ }
+      } else {
+        const link = document.createElement('a');
+        link.download = filename;
+        link.href = URL.createObjectURL(blob);
+        link.click();
+        URL.revokeObjectURL(link.href);
+      }
+    }, 'image/jpeg', 0.92);
+  });
 });
 
 /* ============================================================
    LIST BUTTON + STARTUP
    ============================================================ */
-btnList.addEventListener('click', openPanel);
 
 /* On window resize (e.g. desktop user resizes the browser, or
    mobile user rotates), the canvas's screen size changes but its
