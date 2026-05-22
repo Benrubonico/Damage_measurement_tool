@@ -1009,7 +1009,7 @@ const SAFE_ZONE_RATIO = 0.70;
    is created. The user can drag the dimension line to adjust it.
    Increase for a more visible initial separation on high-res photos.
    ============================================================ */
-const DIM_OFFSET_DEFAULT = 40;
+const DIM_OFFSET_DEFAULT = -40;
 
 /* ============================================================
    AUTH / LOGIN
@@ -1807,15 +1807,37 @@ function drawDimension(m, crossSize, stroke, fontSize, k) {
   ctx.moveTo(dax, day); ctx.lineTo(dbx, dby);
   ctx.stroke();
 
-  /* Small perpendicular ticks at each end of the dimension line */
+  /* Arrowheads at each end of the dimension line, pointing outward.
+     Each arrow is drawn as two lines forming a V shape.
+     The arrow at da points in the -ux,-uy direction (away from b).
+     The arrow at db points in the +ux,+uy direction (away from a).
+     Wing angle: 25° each side of the shaft direction.
+     Wing length: same as capSize. */
+  const wingAngle = 0.436;   // 25 degrees in radians
+  const cosW = Math.cos(wingAngle);
+  const sinW = Math.sin(wingAngle);
+
   ctx.lineWidth = stroke;
   ctx.beginPath();
-  /* Tick at da: a short line perpendicular to the dimension line */
-  ctx.moveTo(dax - px * capSize, day - py * capSize);
-  ctx.lineTo(dax + px * capSize, day + py * capSize);
-  /* Tick at db */
-  ctx.moveTo(dbx - px * capSize, dby - py * capSize);
-  ctx.lineTo(dbx + px * capSize, dby + py * capSize);
+
+  /* Arrow at da — shaft direction is (-ux, -uy) */
+  const daDirX = -ux, daDirY = -uy;
+  /* Rotate wing +wingAngle */
+  const da1x = dax + capSize * ( daDirX * cosW - daDirY * sinW);
+  const da1y = day + capSize * ( daDirX * sinW + daDirY * cosW);
+  /* Rotate wing -wingAngle */
+  const da2x = dax + capSize * ( daDirX * cosW + daDirY * sinW);
+  const da2y = day + capSize * (-daDirX * sinW + daDirY * cosW);
+  ctx.moveTo(da1x, da1y); ctx.lineTo(dax, day); ctx.lineTo(da2x, da2y);
+
+  /* Arrow at db — shaft direction is (+ux, +uy) */
+  const dbDirX = ux, dbDirY = uy;
+  const db1x = dbx + capSize * ( dbDirX * cosW - dbDirY * sinW);
+  const db1y = dby + capSize * ( dbDirX * sinW + dbDirY * cosW);
+  const db2x = dbx + capSize * ( dbDirX * cosW + dbDirY * sinW);
+  const db2y = dby + capSize * (-dbDirX * sinW + dbDirY * cosW);
+  ctx.moveTo(db1x, db1y); ctx.lineTo(dbx, dby); ctx.lineTo(db2x, db2y);
+
   ctx.stroke();
 
   /* Label: centred on the dimension line, rotated to be parallel */
