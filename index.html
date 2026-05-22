@@ -377,6 +377,38 @@
 }
 #left-panel.show { transform: translateX(0); }
 
+/* Tab handle — visible when panel is closed, hidden when open */
+#left-panel-tab {
+  position: absolute;
+  top: 50%;
+  right: -40px;
+  transform: translateY(-50%);
+  width: 40px;
+  height: 80px;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-left: none;
+  border-radius: 0 8px 8px 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 1;
+}
+#left-panel-tab span {
+  font-size: 11px;
+  font-weight: 700;
+  color: #aaa;
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  transform: rotate(180deg);
+  letter-spacing: 1px;
+  user-select: none;
+}
+#left-panel.show #left-panel-tab {
+  display: none;
+}
+
 #left-panel header {
   padding: 16px;
   border-bottom: 1px solid #333;
@@ -717,6 +749,7 @@ details[open] > summary::after   { content: '▾'; }
 </div>
 
 <div id="left-panel">
+  <div id="left-panel-tab"><span>⚙ GUIDE</span></div>
   <header>
     <h3>⚙ Tools & Guide</h3>
     <button id="left-panel-close">✕</button>
@@ -2104,6 +2137,17 @@ function setPhase(newPhase) {
   }
 
   welcome.style.display = (newPhase === 'init') ? 'block' : 'none';
+  /* Auto-open the left panel the first time a photo reaches
+   measure-idle, so the user sees the tools without hunting
+   for the ☰ button. Only on first arrival (no dimensions yet). */
+if (newPhase === 'measure-idle' && state.dimensions.length === 0 &&
+    !leftPanel.classList.contains('show')) {
+  openLeftPanel();
+}
+if (newPhase === 'init') {
+  leftPanel.classList.remove('show');
+  panelBackdrop.classList.remove('show');
+}
   canvas.style.display  = (newPhase === 'init') ? 'none'  : 'block';
   hint.style.display    = (newPhase === 'init') ? 'none'  : 'block';
   controls.style.display= (newPhase === 'init') ? 'none'  : 'flex';
@@ -2277,7 +2321,6 @@ mmInput.addEventListener('keydown', (e) => {
    LEFT PANEL — open / close + secondary action buttons
    ============================================================ */
 const leftPanel        = document.getElementById('left-panel');
-const btnOpenLeftPanel = document.getElementById('btn-open-left-panel');
 const leftPanelClose   = document.getElementById('left-panel-close');
 const btnListPanel     = document.getElementById('btn-list-panel');
 const btnCleanPanel    = document.getElementById('btn-clean-panel');
@@ -2298,7 +2341,7 @@ function closeLeftPanel() {
 }
 
 leftPanelClose.addEventListener('click', closeLeftPanel);
-btnOpenLeftPanel.addEventListener('click', openLeftPanel);
+document.getElementById('left-panel-tab').addEventListener('click', openLeftPanel);
 
 /* Reuse the existing backdrop to close whichever panel is open */
 panelBackdrop.addEventListener('click', () => {
