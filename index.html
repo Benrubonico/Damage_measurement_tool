@@ -2193,7 +2193,7 @@ function updateButtons() {
     .forEach(b => b.style.display = 'none');
 
   /* Left-panel secondary buttons */
-  [btnListPanel, btnCleanPanel, btnViewOrigPanel, btnSavePanel, btnSharePanel]
+  [btnListPanel, btnCleanPanel, btnSavePanel, btnSharePanel]
     .forEach(b => b.style.display = 'none');
 
   if (state.phase === 'init') return;
@@ -2211,8 +2211,7 @@ function updateButtons() {
     btnCleanPanel.style.display      = 'block';
     btnSavePanel.style.display       = 'block';
     btnSharePanel.style.display      = 'block';
-    if (state.originalPhoto) btnViewOrigPanel.style.display = 'block';
-  }
+    }
   else if (state.phase === 'measure-1-empty') {
     btnCancelMeas.style.display = 'block';
   }
@@ -2334,7 +2333,6 @@ const leftPanel        = document.getElementById('left-panel');
 const leftPanelClose   = document.getElementById('left-panel-close');
 const btnListPanel     = document.getElementById('btn-list-panel');
 const btnCleanPanel    = document.getElementById('btn-clean-panel');
-const btnViewOrigPanel = document.getElementById('btn-view-original-panel');
 const btnSavePanel     = document.getElementById('btn-save-panel');
 const btnSharePanel    = document.getElementById('btn-share-panel');
 
@@ -2369,14 +2367,6 @@ btnCleanPanel.addEventListener('click', () => {
   closeLeftPanel();
   document.body.classList.add('clean');
 });
-btnViewOrigPanel.addEventListener('click', startViewOriginal);
-btnViewOrigPanel.addEventListener('mousedown',   startViewOriginal);
-btnViewOrigPanel.addEventListener('mouseup',     stopViewOriginal);
-btnViewOrigPanel.addEventListener('mouseleave',  stopViewOriginal);
-btnViewOrigPanel.addEventListener('touchstart',
-  (e) => { e.preventDefault(); startViewOriginal(); }, { passive: false });
-btnViewOrigPanel.addEventListener('touchend',    stopViewOriginal);
-btnViewOrigPanel.addEventListener('touchcancel', stopViewOriginal);
 
 btnSavePanel.addEventListener('click', () => {
   closeLeftPanel();
