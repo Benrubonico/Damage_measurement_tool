@@ -377,7 +377,8 @@
 }
 #left-panel.show { transform: translateX(0); }
 
-/* Tab handle — visible when panel is closed, hidden when open */
+/* Tab handle — always visible on the right edge of the panel.
+   Disappears when the panel is open (no longer needed). */
 #left-panel-tab {
   position: absolute;
   top: 50%;
@@ -405,9 +406,7 @@
   letter-spacing: 1px;
   user-select: none;
 }
-#left-panel.show #left-panel-tab {
-  display: none;
-}
+#left-panel.show #left-panel-tab { display: none; }
 
 #left-panel header {
   padding: 16px;
@@ -623,7 +622,6 @@ details[open] > summary::after   { content: '▾'; }
   </div>
 
   <div id="controls" style="display:none">
-    <button id="btn-open-left-panel" class="secondary icon" title="Tools & Guide">☰</button>
     <button id="btn-new-project"    class="secondary icon" title="Start new project">🔄</button>
     <button id="btn-retake-camera"  class="secondary icon" title="New photo (camera)">📷</button>
     <button id="btn-retake-gallery" class="secondary icon" title="New photo (gallery)">🖼</button>
@@ -755,14 +753,6 @@ details[open] > summary::after   { content: '▾'; }
     <button id="left-panel-close">✕</button>
   </header>
 
-  <div class="panel-actions">
-    <button id="btn-list-panel"          style="display:none">📋 Dimensions list</button>
-    <button id="btn-clean-panel"         style="display:none">👁 Clean picture</button>
-    <button id="btn-view-original-panel" style="display:none">⊙ View original</button>
-    <button id="btn-save-panel"          style="display:none">💾 Save</button>
-    <button id="btn-share-panel"         style="display:none">📤 Share</button>
-  </div>
-
   <div class="how-to">
     <details>
       <summary>How to use</summary>
@@ -819,6 +809,15 @@ details[open] > summary::after   { content: '▾'; }
       </div>
     </details>
   </div>
+
+  <div class="panel-actions">
+    <button id="btn-list-panel"          style="display:none">📋 Dimensions list</button>
+    <button id="btn-clean-panel"         style="display:none">👁 Clean picture</button>
+    <button id="btn-view-original-panel" style="display:none">⊙ View original</button>
+    <button id="btn-save-panel"          style="display:none">💾 Save</button>
+    <button id="btn-share-panel"         style="display:none">📤 Share</button>
+  </div>
+
 </div>
 
 <div id="panel-backdrop"></div>
@@ -2137,20 +2136,21 @@ function setPhase(newPhase) {
   }
 
   welcome.style.display = (newPhase === 'init') ? 'block' : 'none';
-  /* Auto-open the left panel the first time a photo reaches
-   measure-idle, so the user sees the tools without hunting
-   for the ☰ button. Only on first arrival (no dimensions yet). */
-if (newPhase === 'measure-idle' && state.dimensions.length === 0 &&
-    !leftPanel.classList.contains('show')) {
-  openLeftPanel();
-}
-if (newPhase === 'init') {
-  leftPanel.classList.remove('show');
-  panelBackdrop.classList.remove('show');
-}
   canvas.style.display  = (newPhase === 'init') ? 'none'  : 'block';
   hint.style.display    = (newPhase === 'init') ? 'none'  : 'block';
   controls.style.display= (newPhase === 'init') ? 'none'  : 'flex';
+
+  /* Auto-open the left panel the first time a photo reaches
+     measure-idle so the user sees tools and instructions without
+     having to find the tab. Only fires once (no dimensions yet).
+     On init, make sure the panel is always closed. */
+  if (newPhase === 'init') {
+    leftPanel.classList.remove('show');
+    panelBackdrop.classList.remove('show');
+  } else if (newPhase === 'measure-idle' && state.dimensions.length === 0 &&
+             !leftPanel.classList.contains('show')) {
+    openLeftPanel();
+  }
 
   if (state.mmPerPixel) {
     badge.style.display = 'inline-flex';
