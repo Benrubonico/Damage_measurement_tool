@@ -1196,7 +1196,12 @@ const state = {
   /* View-original mode: true only while the user holds the
      "Original" button. Causes redraw() to show the un-rectified
      photo without any overlays. Cleared on pointer-up/cancel. */
-  viewingOriginal: false
+  viewingOriginal: false,
+
+  /* Dimension line dragging */
+  draggingDim: null,       // the dimension object being dragged, or null
+  dragStartOffset: 0,      // dimOffset value at the moment dragging began
+  dragStartImgPos: null    // image-space position where the drag started
 };
 
 const welcome = document.getElementById('welcome');
@@ -1881,6 +1886,78 @@ function drawDimension(m, crossSize, stroke, fontSize, k) {
 const TAP_THRESHOLD_PX = 10;
 const TAP_MAX_MS = 500;
 
+/* ============================================================
+   DIMENSION HIT TEST
+   ============================================================
+   Returns the dimension whose dimension line (the offset parallel
+   line, not the original measurement line) is closest to imgPoint,
+   provided that point is within HIT_RADIUS image pixels of it.
+   Returns null if no dimension qualifies.
+
+   We test against the dimension LINE (infinite), then verify the
+   foot of the perpendicular falls within the segment, to avoid
+   triggering on extensions of the line beyond the endpoints.
+
+   HIT_RADIUS is defined in screen pixels and converted to image
+   pixels so the hit area stays the same physical size regardless
+   of zoom level or photo resolution.
+   ============================================================ */
+const DIM_HIT_RADIUS_SCREEN_PX = 30;
+
+function getDimAtPoint(imgPoint) {
+  if (state.phase !== 'measure-idle') return null;
+
+  /* Convert hit radius from screen px to image px */
+  const hitRadius = DIM_HIT_RADIUS_SCREEN_PX * imagePerScreenPx() / state.scale;
+
+  let best = null;
+  let bestDist = Infinity;
+
+  state.dimensions.forEach(m => {
+    if (m.hidden) return;
+
+    const ax = m.a.x, ay = m.a.y;
+    const bx = m.b.x, by = m.b.y;
+    const len = Math.hypot(bx - ax, by - ay);
+    if (len < 1) return;
+
+    /* Unit vectors along and perpendicular to the measurement line */
+    const ux = (bx - ax) / len;
+    const uy = (by - ay) / len;
+    const px = -uy;
+    const py =  ux;
+
+    /* Centre of the dimension line (offset copy) */
+    const off = m.dimOffset || 0;
+    const dax = ax + px * off;
+    const day = ay + py * off;
+    const dbx = bx + px * off;
+    const dby = by + py * off;
+
+    /* Signed distance from imgPoint to the dimension line.
+       Project imgPoint onto the perpendicular axis of the dim line. */
+    const dx = imgPoint.x - dax;
+    const dy = imgPoint.y - day;
+
+    /* Perpendicular distance to the infinite line */
+    const perpDist = Math.abs(dx * px + dy * py);
+    if (perpDist > hitRadius) return;
+
+    /* Parametric position along the dimension line segment (0=da, 1=db) */
+    const t = (dx * ux + dy * uy) / len;
+    /* Only register a hit if the foot falls within the segment
+       (with a small margin so the endpoints are also hittable) */
+    if (t < -0.05 || t > 1.05) return;
+
+    if (perpDist < bestDist) {
+      bestDist = perpDist;
+      best = m;
+    }
+  });
+
+  return best;
+}
+
 function onTouchStart(evt) {
   evt.preventDefault();
   if (evt.touches.length === 2) {
@@ -1896,6 +1973,15 @@ function onTouchStart(evt) {
     state.touchStartTime = Date.now();
     state.touchStartPos = { x: t.clientX, y: t.clientY };
     state.panStart = { x: t.clientX, y: t.clientY, offsetX: state.offsetX, offsetY: state.offsetY };
+
+    /* Check if the touch lands on a dimension line */
+    const imgPos = getImagePoint(t.clientX, t.clientY);
+    const hit = getDimAtPoint(imgPos);
+    if (hit) {
+      state.draggingDim = hit;
+      state.dragStartOffset = hit.dimOffset;
+      state.dragStartImgPos = imgPos;
+    }
   }
 }
 function onTouchMove(evt) {
@@ -1944,6 +2030,16 @@ function onMouseDown(evt) {
   state.touchStartTime = Date.now();
   state.touchStartPos = { x: evt.clientX, y: evt.clientY };
   state.panStart = { x: evt.clientX, y: evt.clientY, offsetX: state.offsetX, offsetY: state.offsetY };
+
+  /* Check if the pointer is on a dimension line — if so, start
+     dragging that dimension instead of panning or tapping. */
+  const imgPos = getImagePoint(evt.clientX, evt.clientY);
+  const hit = getDimAtPoint(imgPos);
+  if (hit) {
+    state.draggingDim = hit;
+    state.dragStartOffset = hit.dimOffset;
+    state.dragStartImgPos = imgPos;
+  }
 }
 function onMouseMove(evt) {
   if (!state.mouseDown) return;
