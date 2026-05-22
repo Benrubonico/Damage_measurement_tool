@@ -373,16 +373,15 @@
   z-index: 25;
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
-}
+  }
 #left-panel.show { transform: translateX(0); }
 
 /* Tab handle — always visible on the right edge of the panel.
    Disappears when the panel is open (no longer needed). */
 #left-panel-tab {
-  position: absolute;
+  position: fixed;
   top: 50%;
-  right: -40px;
+  left: 0;
   transform: translateY(-50%);
   width: 40px;
   height: 80px;
@@ -394,8 +393,11 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  z-index: 1;
+  z-index: 24;
+  transition: left 0.25s ease-out;
 }
+#left-panel.show ~ #left-panel-tab,
+#left-panel-tab.hidden { display: none; }
 #left-panel-tab span {
   font-size: 11px;
   font-weight: 700;
@@ -406,7 +408,6 @@
   letter-spacing: 1px;
   user-select: none;
 }
-#left-panel.show #left-panel-tab { display: none; }
 
 #left-panel header {
   padding: 16px;
@@ -449,6 +450,10 @@
 #left-panel .panel-actions button:hover { background: #2e2e2e; }
 
 /* How-to-use collapsible section */
+#left-panel .panel-inner {
+  flex: 1;
+  overflow-y: auto;
+}
 #left-panel .how-to {
   padding: 12px;
   flex-shrink: 0;
@@ -746,8 +751,8 @@ details[open] > summary::after   { content: '▾'; }
   </div>
 </div>
 
+<div id="left-panel-tab"><span>⚙ GUIDE</span></div>
 <div id="left-panel">
-  <div id="left-panel-tab"><span>⚙ GUIDE</span></div>
   <header>
     <h3>⚙ Tools & Guide</h3>
     <button id="left-panel-close">✕</button>
@@ -2328,13 +2333,14 @@ const btnViewOrigPanel = document.getElementById('btn-view-original-panel');
 const btnSavePanel     = document.getElementById('btn-save-panel');
 const btnSharePanel    = document.getElementById('btn-share-panel');
 
-function openLeftPanel()  {
+function openLeftPanel() {
   leftPanel.classList.add('show');
   panelBackdrop.classList.add('show');
+  document.getElementById('left-panel-tab').style.display = 'none';
 }
 function closeLeftPanel() {
   leftPanel.classList.remove('show');
-  /* Only remove backdrop if the right panel is also closed */
+  document.getElementById('left-panel-tab').style.display = '';
   if (!panel.classList.contains('show')) {
     panelBackdrop.classList.remove('show');
   }
