@@ -1002,6 +1002,16 @@ const PERSPECTIVE_TILT_LIMIT = 1.10;
 const SAFE_ZONE_RATIO = 0.70;
 
 /* ============================================================
+   DIMENSION OFFSET DEFAULT
+   ============================================================
+   Initial perpendicular offset (in image pixels) between the
+   measurement line and the dimension line when a new dimension
+   is created. The user can drag the dimension line to adjust it.
+   Increase for a more visible initial separation on high-res photos.
+   ============================================================ */
+const DIM_OFFSET_DEFAULT = 40;
+
+/* ============================================================
    AUTH / LOGIN
    ============================================================
    HOW TO CONFIGURE:
@@ -1643,10 +1653,7 @@ function redraw() {
 
     state.dimensions.forEach(m => {
     if (m.hidden) return;
-    drawCross(m.a.x, m.a.y, '#e53935', crossSize, stroke);
-    drawCross(m.b.x, m.b.y, '#e53935', crossSize, stroke);
-    drawLine(m.a, m.b, '#e53935', stroke);
-    drawLabel(m.a, m.b, `${m.name}: ${m.mm.toFixed(1)} mm`, '#e53935', fontSize, k);
+    drawDimension(m, crossSize, stroke, fontSize, k);
   });
 
   if (state.pendingA) drawCross(state.pendingA.x, state.pendingA.y, '#e53935', crossSize, stroke);
@@ -1734,6 +1741,117 @@ function drawLabelAtPoint(point, text, color, fontSize, k) {
   ctx.textBaseline = 'alphabetic';
 }
 
+/* ============================================================
+   ENGINEERING DIMENSION DRAWING
+   ============================================================
+   Draws a single dimension in the technical drawing style:
+   - Two crosses at the original measurement endpoints (a, b)
+   - A dimension line parallel to ab, offset perpendicularly
+     by m.dimOffset image pixels
+   - Extension lines from each endpoint to the dimension line,
+     perpendicular to it (90° exactly)
+   - A rotated label centred on the dimension line
+
+   The perpendicular direction is computed fresh each draw from
+   the current a/b positions, so the geometry is always correct
+   even if points were moved in a future phase.
+
+   Sign convention for dimOffset:
+   Positive = offset in the direction of the left-hand normal
+   of the vector a→b (i.e. "above" the line when b is to the
+   right of a). Negative flips to the other side. The user
+   can drag to either side.
+   ============================================================ */
+function drawDimension(m, crossSize, stroke, fontSize, k) {
+  const ax = m.a.x, ay = m.a.y;
+  const bx = m.b.x, by = m.b.y;
+
+  /* Unit vector along the measurement line (a → b) */
+  const len = Math.hypot(bx - ax, by - ay);
+  if (len < 1) return;   // degenerate: points on top of each other
+  const ux = (bx - ax) / len;
+  const uy = (by - ay) / len;
+
+  /* Left-hand perpendicular unit vector (rotate ux,uy by +90°) */
+  const px = -uy;
+  const py =  ux;
+
+  /* Offset amount in image pixels */
+  const off = m.dimOffset || 0;
+
+  /* Endpoints of the dimension line (offset copies of a and b) */
+  const dax = ax + px * off;
+  const day = ay + py * off;
+  const dbx = bx + px * off;
+  const dby = by + py * off;
+
+  /* Crosses at original measurement points */
+  drawCross(ax, ay, '#e53935', crossSize, stroke);
+  drawCross(bx, by, '#e53935', crossSize, stroke);
+
+  /* Extension lines: from each original point to the dimension line.
+     They are perpendicular to the dimension line by construction
+     (they travel exactly along the px,py direction). */
+  ctx.strokeStyle = '#e53935';
+  ctx.lineWidth = stroke;
+  ctx.beginPath();
+  ctx.moveTo(ax, ay); ctx.lineTo(dax, day);
+  ctx.moveTo(bx, by); ctx.lineTo(dbx, dby);
+  ctx.stroke();
+
+  /* Dimension line with arrow-tick caps */
+  const capSize = crossSize * 0.9;
+  ctx.strokeStyle = '#e53935';
+  ctx.lineWidth = stroke * 1.2;
+  ctx.beginPath();
+  ctx.moveTo(dax, day); ctx.lineTo(dbx, dby);
+  ctx.stroke();
+
+  /* Small perpendicular ticks at each end of the dimension line */
+  ctx.lineWidth = stroke;
+  ctx.beginPath();
+  /* Tick at da: a short line perpendicular to the dimension line */
+  ctx.moveTo(dax - px * capSize, day - py * capSize);
+  ctx.lineTo(dax + px * capSize, day + py * capSize);
+  /* Tick at db */
+  ctx.moveTo(dbx - px * capSize, dby - py * capSize);
+  ctx.lineTo(dbx + px * capSize, dby + py * capSize);
+  ctx.stroke();
+
+  /* Label: centred on the dimension line, rotated to be parallel */
+  const midX = (dax + dbx) / 2;
+  const midY = (day + dby) / 2;
+  const angle = Math.atan2(dby - day, dbx - dax);   // radians
+
+  const text = `${m.name}: ${m.mm.toFixed(1)} mm`;
+  ctx.font = `bold ${fontSize}px sans-serif`;
+  const metrics = ctx.measureText(text);
+  const padX = 10 * k, padY = 6 * k;
+  const w = metrics.width + padX * 2;
+  const h = fontSize + padY * 2;
+
+  ctx.save();
+  ctx.translate(midX, midY);
+  ctx.rotate(angle);
+
+  /* Keep text readable: if the line points left (angle outside
+     ±90°), flip 180° so the text never appears upside-down */
+  if (angle > Math.PI / 2 || angle < -Math.PI / 2) {
+    ctx.rotate(Math.PI);
+  }
+
+  ctx.fillStyle = 'rgba(0,0,0,0.75)';
+  ctx.fillRect(-w / 2, -h / 2, w, h);
+  ctx.strokeStyle = '#e53935';
+  ctx.lineWidth = 2 * k;
+  ctx.strokeRect(-w / 2, -h / 2, w, h);
+  ctx.fillStyle = '#e53935';
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'center';
+  ctx.fillText(text, 0, 0);
+
+  ctx.restore();
+}
 
 /* ============================================================
    TOUCH AND MOUSE
@@ -2290,7 +2408,8 @@ btnConfirmMeas.addEventListener('click', () => {
     id: Date.now() + Math.random(),
     name: `Dim ${state.dimCounter}`,
     a, b, mm,
-    hidden: false
+    hidden: false,
+    dimOffset: DIM_OFFSET_DEFAULT   // perpendicular offset of the dimension line, in image px
   });
   state.pendingA = null; state.pendingB = null;
   renderPanelList();
