@@ -211,30 +211,7 @@
       flex: 0 0 auto;
     }
     #fab-fit.show { display: flex; }
-
-    #fab-view-original {
-      position: absolute;
-      bottom: 64px;
-      right: 12px;
-      width: 44px;
-      height: 44px;
-      border-radius: 50%;
-      background: rgba(0,0,0,0.6);
-      border: 1px solid #555;
-      color: #fff;
-      font-size: 16px;
-      font-weight: 700;
-      display: none;
-      align-items: center;
-      justify-content: center;
-      z-index: 5;
-      cursor: pointer;
-      padding: 0;
-      min-width: 0;
-      flex: 0 0 auto;
-    }
-    #fab-view-original.show { display: flex; }
-
+    
     body.clean #hint,
 body.clean #scale-badge,
 body.clean #controls,
@@ -650,7 +627,7 @@ details[open] > summary::after   { content: '▾'; }
     <div id="hint" style="display:none"></div>
     <button id="scale-badge"></button>
     <button id="fab-fit" title="Fit to screen">1:1</button>
-    <button id="fab-view-original" title="Hold to view original photo">⊙</button>
+    <button id="fab-view-original" style="display:none">⊙ View original</button>
   </div>
 
   <div id="controls" style="display:none">
@@ -1876,7 +1853,10 @@ function handleTap(imgPoint) {
    ZOOM RESET + CLEAN MODE
    ============================================================ */
 fabFit.addEventListener('click', () => { resetZoom(); redraw(); });
-fabExitClean.addEventListener('click', () => document.body.classList.remove('clean'));
+fabExitClean.addEventListener('click', () => {
+  document.body.classList.remove('clean');
+  redraw();
+});
 
 
 /* ============================================================
@@ -2220,7 +2200,7 @@ function updateButtons() {
     .forEach(b => b.style.display = 'none');
 
   /* Floating view-original button */
-  fabViewOriginal.classList.remove('show');
+  fabViewOriginal.style.display = 'none';
 
   if (state.phase === 'init') return;
 
@@ -2237,7 +2217,7 @@ function updateButtons() {
     btnCleanPanel.style.display      = 'block';
     btnSavePanel.style.display       = 'block';
     btnSharePanel.style.display      = 'block';
-    if (state.originalPhoto) fabViewOriginal.classList.add('show');
+    if (state.originalPhoto) fabViewOriginal.style.display = 'block';
     }
   else if (state.phase === 'measure-1-empty') {
     btnCancelMeas.style.display = 'block';
@@ -2393,6 +2373,7 @@ btnListPanel.addEventListener('click', () => {
 btnCleanPanel.addEventListener('click', () => {
   closeLeftPanel();
   document.body.classList.add('clean');
+  redraw();
 });
 
 btnSavePanel.addEventListener('click', () => {
