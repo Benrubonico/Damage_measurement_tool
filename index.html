@@ -388,9 +388,8 @@ body.clean #fab-exit-clean { display: flex !important; }
   transform: translateY(-50%);
   width: 36px;
   height: 140px;
-  background: #1a1a1a;
-  border: 1px solid #333;
-  border-left: none;
+  background: #A100FF;
+  border: none;
   border-radius: 0 8px 8px 0;
   display: flex;
   align-items: center;
@@ -398,13 +397,14 @@ body.clean #fab-exit-clean { display: flex !important; }
   cursor: pointer;
   z-index: 24;
   transition: left 0.25s ease-out;
+  box-shadow: 2px 0 8px rgba(161,0,255,0.4);
 }
 #left-panel.show ~ #left-panel-tab,
 #left-panel-tab.hidden { display: none; }
 #left-panel-tab span {
   font-size: 11px;
   font-weight: 700;
-  color: #aaa;
+  color: #fff;
   writing-mode: vertical-rl;
   text-orientation: mixed;
   transform: rotate(180deg);
@@ -2396,9 +2396,6 @@ function setPhase(newPhase) {
   if (newPhase === 'init') {
     leftPanel.classList.remove('show');
     panelBackdrop.classList.remove('show');
-  } else if (newPhase === 'measure-idle' && state.dimensions.length === 0 &&
-             !leftPanel.classList.contains('show')) {
-    openLeftPanel();
   }
 
   if (state.mmPerPixel) {
