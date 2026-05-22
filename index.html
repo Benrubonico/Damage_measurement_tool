@@ -212,6 +212,29 @@
     }
     #fab-fit.show { display: flex; }
 
+    #fab-view-original {
+      position: absolute;
+      bottom: 64px;
+      right: 12px;
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: rgba(0,0,0,0.6);
+      border: 1px solid #555;
+      color: #fff;
+      font-size: 16px;
+      font-weight: 700;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 5;
+      cursor: pointer;
+      padding: 0;
+      min-width: 0;
+      flex: 0 0 auto;
+    }
+    #fab-view-original.show { display: flex; }
+
     body.clean #hint,
 body.clean #scale-badge,
 body.clean #controls,
@@ -627,7 +650,7 @@ details[open] > summary::after   { content: '▾'; }
     <div id="hint" style="display:none"></div>
     <button id="scale-badge"></button>
     <button id="fab-fit" title="Fit to screen">1:1</button>
-    <button id="fab-view-original" title="Hold to view original photo" style="display:none">⊙</button>
+    <button id="fab-view-original" title="Hold to view original photo">⊙</button>
   </div>
 
   <div id="controls" style="display:none">
@@ -1610,20 +1633,11 @@ function redraw() {
     ctx.restore();
   }
 
-  /* CALIBRATION OVERLAY (Edición H)
-     ----------------------------------------------------------
-     Two visual styles depending on how the scale was set:
+  /* In clean mode, skip all overlays — show photo only. */
+  if (cleanMode) return;
 
-       - Auto (ArUco marker detected): draw the full quadrilateral
-         of the marker plus a single label at its centre. Shows
-         the user which marker was detected AND makes any perspec-
-         tive distortion visible (a square seen square vs. a
-         trapezoid).
-       - Manual (user picked two reference points): two yellow
-         crosses joined by a diagonal line, as before. Unchanged.
-     ---------------------------------------------------------- */
-    if (cleanMode) return;
-     if (state.calibMarkerCorners) {
+  /* CALIBRATION OVERLAY (Edición H) */
+  if (state.calibMarkerCorners) {
     /* Auto-detected marker: closed quadrilateral, no corner
        crosses (the rectangle is enough). Tilted calibrations use
        the same yellow line, since the badge already conveys the
@@ -1896,6 +1910,15 @@ function stopViewOriginal() {
   state.viewingOriginal = false;
   redraw();
 }
+
+const fabViewOriginal = document.getElementById('fab-view-original');
+fabViewOriginal.addEventListener('mousedown',   startViewOriginal);
+fabViewOriginal.addEventListener('mouseup',     stopViewOriginal);
+fabViewOriginal.addEventListener('mouseleave',  stopViewOriginal);
+fabViewOriginal.addEventListener('touchstart',
+  (e) => { e.preventDefault(); startViewOriginal(); }, { passive: false });
+fabViewOriginal.addEventListener('touchend',    stopViewOriginal);
+fabViewOriginal.addEventListener('touchcancel', stopViewOriginal);
 
 /* ============================================================
    ONBOARDING
@@ -2196,6 +2219,9 @@ function updateButtons() {
   [btnListPanel, btnCleanPanel, btnSavePanel, btnSharePanel]
     .forEach(b => b.style.display = 'none');
 
+  /* Floating view-original button */
+  fabViewOriginal.classList.remove('show');
+
   if (state.phase === 'init') return;
 
   btnNewProject.style.display    = 'block';
@@ -2211,6 +2237,7 @@ function updateButtons() {
     btnCleanPanel.style.display      = 'block';
     btnSavePanel.style.display       = 'block';
     btnSharePanel.style.display      = 'block';
+    if (state.originalPhoto) fabViewOriginal.classList.add('show');
     }
   else if (state.phase === 'measure-1-empty') {
     btnCancelMeas.style.display = 'block';
