@@ -1820,8 +1820,8 @@ function drawDimension(m, crossSize, stroke, fontSize, k) {
   ctx.lineWidth = stroke;
   ctx.beginPath();
 
-  /* Arrow at da — shaft direction is (-ux, -uy) */
-  const daDirX = -ux, daDirY = -uy;
+  /* Arrow at da — shaft points inward toward b (along +ux, +uy) */
+  const daDirX = ux, daDirY = uy;
   /* Rotate wing +wingAngle */
   const da1x = dax + capSize * ( daDirX * cosW - daDirY * sinW);
   const da1y = day + capSize * ( daDirX * sinW + daDirY * cosW);
@@ -1830,8 +1830,8 @@ function drawDimension(m, crossSize, stroke, fontSize, k) {
   const da2y = day + capSize * (-daDirX * sinW + daDirY * cosW);
   ctx.moveTo(da1x, da1y); ctx.lineTo(dax, day); ctx.lineTo(da2x, da2y);
 
-  /* Arrow at db — shaft direction is (+ux, +uy) */
-  const dbDirX = ux, dbDirY = uy;
+  /* Arrow at db — shaft points inward toward a (along -ux, -uy) */
+  const dbDirX = -ux, dbDirY = -uy;
   const db1x = dbx + capSize * ( dbDirX * cosW - dbDirY * sinW);
   const db1y = dby + capSize * ( dbDirX * sinW + dbDirY * cosW);
   const db2x = dbx + capSize * ( dbDirX * cosW + dbDirY * sinW);
