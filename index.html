@@ -624,6 +624,7 @@ details[open] > summary::after   { content: '▾'; }
     <div id="hint" style="display:none"></div>
     <button id="scale-badge"></button>
     <button id="fab-fit" title="Fit to screen">1:1</button>
+    <button id="fab-view-original" title="Hold to view original photo" style="display:none">⊙</button>
   </div>
 
   <div id="controls" style="display:none">
@@ -818,7 +819,6 @@ details[open] > summary::after   { content: '▾'; }
   <div class="panel-actions">
     <button id="btn-list-panel"          style="display:none">📋 Dimensions list</button>
     <button id="btn-clean-panel"         style="display:none">👁 Clean picture</button>
-    <button id="btn-view-original-panel" style="display:none">⊙ View original</button>
     <button id="btn-save-panel"          style="display:none">💾 Save</button>
     <button id="btn-share-panel"         style="display:none">📤 Share</button>
   </div>
@@ -2358,7 +2358,6 @@ panelBackdrop.addEventListener('click', () => {
 /* Secondary buttons inside the left panel — same logic as the
    original toolbar buttons they replace */
 btnListPanel.addEventListener('click', () => {
-  closeLeftPanel();
   openPanel();
 });
 btnCleanPanel.addEventListener('click', () => {
