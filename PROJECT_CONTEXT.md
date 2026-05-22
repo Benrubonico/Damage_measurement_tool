@@ -411,11 +411,7 @@ are followed:
 - Flag trade-offs and limitations honestly, even if I don't ask.
 - Don't add libraries or complexity without justifying why simpler
   options won't work.
-- Before any non-trivial edit: read the relevant fragment of
-  index.html by asking for the specific lines or function needed.
-  Do NOT rely on memory of the file from earlier in the chat —
-  the file grows chat after chat and memory desyncs. Do NOT request
-  the whole file unless strictly necessary.
+- Before any non-trivial edit: read the relevant code directly from the index.html attached to the   project — it is always the updated source of truth. Do NOT ask the user to paste fragments; read them from the attached file. Only ask the user for a specific fragment if there is genuine ambiguity that the attached file cannot resolve.
 - Give the user only what they need to copy-paste into their editor
   (specific fragments, new files), not whole-file replacements.
   Explain at each step what the fragment does and why, so the user
