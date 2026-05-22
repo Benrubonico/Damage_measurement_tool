@@ -83,21 +83,23 @@ Installable as a PWA (Progressive Web App) on any device.
 
 Ongoing improvements to the Damage Measurement Tool, in planned order:
 
-- Phase 10 — UX overhaul: collapsible left-side instruction panel,
-  visual refresh of the interface, move secondary controls into the
-  panel to declutter the toolbar, moveable dimensions (drag endpoints
-  of any placed dimension including the reference calibration).
-- Phase 11 — Measurement reliability heatmap: hold-to-show colour
+- Phase 11 — Free annotations: freehand drawing and text labels
+  directly on the photo. Two tools: a freehand pen (variable colour
+  and stroke width) and a text stamp (tap to place, type the label).
+  Both are stored as overlay data (not baked into the photo until
+  export). Controls live inside the left-side Tools & Guide panel.
+  Annotations are cleared when a new photo is loaded.
+- Phase 12 — Measurement reliability heatmap: hold-to-show colour
   gradient overlay (green at centre → yellow → red at edges) based
   on known error model (marker position, safe zone, lens distortion).
   Same interaction pattern as the existing "⊙ Original" button.
-- Phase 12 — Multi-marker support: detect and display all known
+- Phase 13 — Multi-marker support: detect and display all known
   markers present in the photo, use the largest as primary scale,
   store all corners in state as groundwork for future geometry.
-- Phase 13 — Stereometry: light 3D depth estimation from two photos
+- Phase 14 — Stereometry: light 3D depth estimation from two photos
   of the same damage (both with visible marker), aligned via marker
   anchor, depth by triangulation. Two photos required, third optional.
-- Phase 14 — Assisted automatic damage detection (classical OpenCV,
+- Phase 15 — Assisted automatic damage detection (classical OpenCV,
   no AI): Canny edge detection + contour analysis on the rectified
   image to propose measurement endpoints. Inspector confirms or adjusts.
 
@@ -138,15 +140,18 @@ reaches maturity. It is not a phase of this project.
    index.html as the access control mechanism for shared users.
    Entra ID corporate accounts (Accenture tenant) blocked by corporate
    IT policy — not usable without admin approval from Accenture IT.
-10. ⏸ UX overhaul: collapsible instruction panel, visual refresh,
-    moveable dimensions (next chat).
-11. ⏸ Measurement reliability heatmap: hold-to-show colour overlay
-    indicating per-zone measurement confidence. Same interaction
-    pattern as "⊙ Original" button.
-12. ⏸ Multi-marker support: detect and display all known markers,
+10. ✅ UX overhaul: collapsible left-side instruction panel (Tools &
+    Guide, Accenture purple tab), visual refresh, secondary buttons
+    moved into panel, engineering-style moveable dimension lines
+    (parallel to measurement, perpendicular extension lines,
+    arrowheads, draggable offset). DIM_OFFSET_DEFAULT = -40.
+11. ⏸ Free annotations: freehand pen + text stamps on photo.
+    Controls in Tools & Guide panel.
+12. ⏸ Measurement reliability heatmap: hold-to-show colour overlay.
+13. ⏸ Multi-marker support: detect and display all known markers,
     use largest as primary scale.
-13. ⏸ Stereometry: light 3D depth estimation from two photos.
-14. ⏸ Assisted damage detection: Canny + contours, no AI
+14. ⏸ Stereometry: light 3D depth estimation from two photos.
+15. ⏸ Assisted damage detection: Canny + contours, no AI.
 
 ## Distribution strategy
 
@@ -164,6 +169,29 @@ reaches maturity. It is not a phase of this project.
   needed; only the Azure Role Management configuration would change.
 - Native APK / .exe: deferred unless a concrete reason a PWA can't
   cover emerges. Tools for that day: Capacitor (APK) or Tauri (.exe).
+
+## Versioning strategy
+
+- **Tag v1.0-core**: create this Git tag at the close of phase 13
+  (multi-marker support). At that point the measurement core is
+  complete and validated. Command: `git tag v1.0-core` + push.
+  This marks a permanent stable reference to return to at any time.
+
+- **JavaScript separation**: before starting phase 14 or 15 (when
+  the file becomes hard to navigate), move all `<script>` content
+  to a separate `app.js` file. Add `app.js` to `PRE_CACHE_URLS` in
+  sw.js. No behaviour change, just maintainability.
+
+- **Future branches after v1.0-core**:
+    - `feature/detection-no-ai` — Canny + contours assisted
+      detection (phase 15), no external dependencies.
+    - `feature/detection-ai` — Claude API or Azure OpenAI
+      integration for damage classification. Requires a small
+      backend or Azure Function to proxy API calls (the API key
+      must never be exposed in client-side code). Cost: cents per
+      photo analysed at low inspector volume.
+  Both branches fork from `main` after the tag, so the clean
+  v1.0 core is always recoverable.
 
 ## Tech stack and constraints
 
@@ -493,6 +521,12 @@ marked with ★.
   phone's lens with a checkerboard pattern would remove the
   residual radial distortion that survives perspective correction.
   Would push best-case error below 0.5%.
+  - **Web Workers for OpenCV processing.** Today the main browser
+  thread briefly freezes while OpenCV processes a heavy photo. Moving
+  detection and rectification to a Web Worker would keep the UI
+  responsive during processing. Most relevant before phase 15
+  (Canny + contours will be heavier than ArUco detection alone).
+  No visible change for the user beyond smoother loading.
 
 ### Capture and quality
 
@@ -730,39 +764,46 @@ does not imply priority.
     is rare and valuable. Return materialises at 12–18 months.
     Cost: 1–2 hours/week.
 
-## How to start the next session (phase 10 — UX overhaul)
+## How to start the next session (phase 11 — free annotations)
 
 When opening a new chat:
 
 1. Confirm that the latest index.html and this PROJECT_CONTEXT.md
    are present in project files (uploaded by the user after the
    previous chat).
-2. The assistant should read this PROJECT_CONTEXT.md first.
-3. When code inspection is needed, ask for specific fragments
-   (line ranges or function names) — do NOT ask for the whole file
-   and do NOT rely on memory of earlier chat content.
+2. The assistant should read this PROJECT_CONTEXT.md and index.html
+   first.
+3. When code inspection is needed, read specific fragments by line
+   range — do NOT ask the user to paste fragments and do NOT rely
+   on memory of earlier chat content.
 4. The assistant should not start writing code until the plan has
    been approved in plain language.
 5. Deliver changes as copy-pasteable fragments for VS Code, not as
    whole-file replacements. Explain each fragment before presenting
    it.
 
-Phase 10 covers four related UX improvements in one session:
+Phase 11 covers free annotations directly on the photo:
 
-  1. Collapsible left-side instruction panel: a slide-in drawer
-     anchored to the left edge, visible from the measure-idle phase
-     onward, containing usage instructions, operational rules
-     (safe zone, marker selection, angle limits), and secondary
-     controls currently cluttering the toolbar.
-  2. Visual refresh: modest styling improvements to make the tool
-     look more professional without changing behaviour.
-  3. Toolbar declutter: move secondary buttons (list, clean mode,
-     save, share) into the panel, keeping only the primary action
-     buttons in the bottom bar.
-  4. Moveable dimensions: allow the user to drag either endpoint
-     of any placed dimension (including the reference calibration
-     points) to reposition it without deleting and redrawing.
+  1. Freehand pen tool: the user draws strokes directly on the
+     photo. Configurable colour (at minimum red, yellow, white,
+     black) and stroke width (thin / medium / thick). Strokes are
+     stored as an array of paths in state, not baked into the photo
+     until export.
+  2. Text stamp tool: the user taps a point on the photo and types
+     a short label (e.g. "dent class 2", "revisar"). The label
+     appears at that point with the same background box style as
+     the dimension labels.
+  3. Undo: a single undo step (remove the last annotation, whether
+     stroke or text).
+  4. Clear all annotations button.
+  5. All controls live inside the Tools & Guide left panel, not in
+     the main toolbar.
+  6. Annotations are cleared automatically when a new photo is
+     loaded.
+  7. On export (Save / Share), annotations are baked into the JPEG
+     together with the dimension overlays.
 
-Before proposing anything, read the current button layout in
-updateButtons() and the controls div in the HTML to understand
-what exists today. Ask for those specific fragments.
+Before proposing anything, read the current left panel HTML
+structure and the panel-actions buttons block to understand what
+exists today. Read also the exportImage() function to understand
+how overlays are currently baked into the exported JPEG.
