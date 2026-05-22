@@ -357,6 +357,107 @@
       display: none;
     }
     #panel-backdrop.show { display: block; }
+
+/* ============================================================
+   LEFT PANEL — instructions + secondary actions
+   ============================================================ */
+#left-panel {
+  position: fixed;
+  top: 0; left: 0; bottom: 0;
+  width: 85%;
+  max-width: 340px;
+  background: #1a1a1a;
+  border-right: 1px solid #333;
+  transform: translateX(-100%);
+  transition: transform 0.25s ease-out;
+  z-index: 25;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+#left-panel.show { transform: translateX(0); }
+
+#left-panel header {
+  padding: 16px;
+  border-bottom: 1px solid #333;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-shrink: 0;
+}
+#left-panel header h3 { font-size: 16px; }
+
+#left-panel-close {
+  background: #333;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  font-size: 18px;
+  flex: 0 0 auto;
+  padding: 0;
+  min-width: 0;
+}
+
+/* Secondary action buttons inside the panel */
+#left-panel .panel-actions {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-bottom: 1px solid #333;
+  flex-shrink: 0;
+}
+#left-panel .panel-actions button {
+  width: 100%;
+  text-align: left;
+  padding: 13px 16px;
+  font-size: 14px;
+  background: #252525;
+  border-radius: 8px;
+}
+#left-panel .panel-actions button:hover { background: #2e2e2e; }
+
+/* How-to-use collapsible section */
+#left-panel .how-to {
+  padding: 12px;
+  flex-shrink: 0;
+}
+#left-panel .how-to summary {
+  font-size: 14px;
+  font-weight: 600;
+  color: #ccc;
+  cursor: pointer;
+  padding: 8px 4px;
+  list-style: none;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+#left-panel .how-to summary::after { content: '▸'; font-size: 12px; }
+details[open] > summary::after   { content: '▾'; }
+#left-panel .how-to .content {
+  padding: 8px 4px 4px;
+  font-size: 13px;
+  color: #aaa;
+  line-height: 1.6;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+#left-panel .how-to .content h4 {
+  font-size: 13px;
+  color: #ddd;
+  margin-bottom: 2px;
+}
+#left-panel .how-to .content p { margin: 0; }
+#left-panel .how-to .content ul {
+  margin: 4px 0 0 16px;
+  padding: 0;
+}
+#left-panel .how-to .content li { margin-bottom: 4px; }
+
+/* Backdrop reused — same element as the right panel backdrop */
+
     /* ============================================================
        OPENCV LOADING OVERLAY
        ============================================================
@@ -490,6 +591,7 @@
   </div>
 
   <div id="controls" style="display:none">
+    <button id="btn-open-left-panel" class="secondary icon" title="Tools & Guide">☰</button>
     <button id="btn-new-project"    class="secondary icon" title="Start new project">🔄</button>
     <button id="btn-retake-camera"  class="secondary icon" title="New photo (camera)">📷</button>
     <button id="btn-retake-gallery" class="secondary icon" title="New photo (gallery)">🖼</button>
@@ -497,12 +599,7 @@
     <button id="btn-confirm-meas"   class="success"   style="display:none">✓ Close dimension</button>
     <button id="btn-cancel-meas"    class="secondary" style="display:none">Cancel</button>
     <button id="btn-add-dim"        class="primary"   style="display:none">➕ Add dimension</button>
-    <button id="btn-list"           class="secondary" style="display:none">📋 List</button>
-    <button id="btn-clean"          class="secondary icon" style="display:none" title="Clean mode">👁</button>
-    <button id="btn-view-original"  class="secondary"     style="display:none" title="Hold to view original photo">⊙ Original</button>
-    <button id="btn-save"           style="display:none">💾 Save</button>
-    <button id="btn-share"          style="display:none">📤 Share</button>
-  </div>
+     </div>
 </div>
 
 <button id="fab-exit-clean">✕</button>
@@ -616,6 +713,78 @@
       <button id="tilted-retake" class="success">📷 Retake photo</button>
       <button id="tilted-continue" class="danger">Continue under my responsibility</button>
     </div>
+  </div>
+</div>
+
+<div id="left-panel" class="show">
+  <header>
+    <h3>⚙ Tools & Guide</h3>
+    <button id="left-panel-close">✕</button>
+  </header>
+
+  <div class="panel-actions">
+    <button id="btn-list-panel"          style="display:none">📋 Dimensions list</button>
+    <button id="btn-clean-panel"         style="display:none">👁 Clean picture</button>
+    <button id="btn-view-original-panel" style="display:none">⊙ View original</button>
+    <button id="btn-save-panel"          style="display:none">💾 Save</button>
+    <button id="btn-share-panel"         style="display:none">📤 Share</button>
+  </div>
+
+  <div class="how-to">
+    <details>
+      <summary>How to use</summary>
+      <div class="content">
+
+        <div>
+          <h4>1 · Place the marker</h4>
+          <p>Print one of the three ArUco markers and place it flat against the surface, next to the damage.</p>
+          <ul>
+            <li><strong>ID 0 (15 mm)</strong> — very small damage only. Less accurate; avoid if ID 1 fits.</li>
+            <li><strong>ID 1 (50 mm)</strong> — primary marker for most inspections.</li>
+            <li><strong>ID 2 (100 mm)</strong> — large damage where ID 1 looks too small.</li>
+          </ul>
+        </div>
+
+        <div>
+          <h4>2 · Take the photo</h4>
+          <ul>
+            <li>Use the phone's <strong>main camera at 1×</strong>. Never wide-angle (0.5×).</li>
+            <li>Keep the marker and the damage inside the <strong>central 70%</strong> of the frame (cyan rectangle).</li>
+            <li>Hold the phone as <strong>parallel to the surface</strong> as possible. Angles above ~30° trigger a tilt warning.</li>
+            <li>Good, even lighting. Avoid glare directly on the marker.</li>
+          </ul>
+        </div>
+
+        <div>
+          <h4>3 · Measure</h4>
+          <ul>
+            <li>The scale is set <strong>automatically</strong> when a marker is detected.</li>
+            <li>Tap <strong>➕ Add dimension</strong> to place a measurement. Confirm each endpoint.</li>
+            <li>Pinch or scroll to zoom in for precise placement.</li>
+            <li>Tap the <strong>scale badge</strong> (bottom-left) to edit the reference value.</li>
+          </ul>
+        </div>
+
+        <div>
+          <h4>4 · Save and share</h4>
+          <ul>
+            <li><strong>💾 Save</strong> — downloads a JPEG with all dimensions drawn.</li>
+            <li><strong>📤 Share</strong> — sends the annotated image via the system share sheet.</li>
+            <li><strong>⊙ View original</strong> — hold to compare the rectified photo with the original.</li>
+          </ul>
+        </div>
+
+        <div>
+          <h4>⚠ Accuracy limits</h4>
+          <ul>
+            <li>Error ~0.3% at image centre, up to ~3% near the edges.</li>
+            <li>Marker ID 0 is unreliable (3–5% error). Use only when strictly necessary.</li>
+            <li>The tool measures <strong>surface extent only</strong> — not depth or relief.</li>
+          </ul>
+        </div>
+
+      </div>
+    </details>
   </div>
 </div>
 
@@ -2008,39 +2177,45 @@ function setPhase(newPhase) {
 }
 
 function updateButtons() {
+  /* Toolbar buttons */
   [btnNewProject, btnRetakeCamera, btnRetakeGallery, btnConfirmPoint, btnConfirmMeas,
-   btnCancelMeas, btnAddDim, btnList, btnClean, btnViewOriginal, btnSave, btnShare]
+   btnCancelMeas, btnAddDim]
+    .forEach(b => b.style.display = 'none');
+
+  /* Left-panel secondary buttons */
+  [btnListPanel, btnCleanPanel, btnViewOrigPanel, btnSavePanel, btnSharePanel]
     .forEach(b => b.style.display = 'none');
 
   if (state.phase === 'init') return;
 
-  btnNewProject.style.display = 'block';
-  btnRetakeCamera.style.display = 'block';
+  btnNewProject.style.display    = 'block';
+  btnRetakeCamera.style.display  = 'block';
   btnRetakeGallery.style.display = 'block';
 
   if (state.phase === 'calib-1-set' || state.phase === 'calib-2-set') {
     btnConfirmPoint.style.display = 'block';
   }
   else if (state.phase === 'measure-idle') {
-    btnAddDim.style.display = 'block';
-    btnList.style.display = 'block';
-    btnClean.style.display = 'block';
-    /* Only show "view original" when there IS a rectified version
-       to compare against. For manual calibration (no rectification)
-       this button would be meaningless. */
-    if (state.originalPhoto) btnViewOriginal.style.display = 'block';
-    btnSave.style.display = 'block';
-    btnShare.style.display = 'block';
+    btnAddDim.style.display          = 'block';
+    btnListPanel.style.display       = 'block';
+    btnCleanPanel.style.display      = 'block';
+    btnSavePanel.style.display       = 'block';
+    btnSharePanel.style.display      = 'block';
+    if (state.originalPhoto) btnViewOrigPanel.style.display = 'block';
   }
-  else if (state.phase === 'measure-1-empty') { btnCancelMeas.style.display = 'block'; }
+  else if (state.phase === 'measure-1-empty') {
+    btnCancelMeas.style.display = 'block';
+  }
   else if (state.phase === 'measure-1') {
     btnConfirmPoint.style.display = 'block';
+    btnCancelMeas.style.display   = 'block';
+  }
+  else if (state.phase === 'measure-2-empty') {
     btnCancelMeas.style.display = 'block';
   }
-  else if (state.phase === 'measure-2-empty') { btnCancelMeas.style.display = 'block'; }
   else if (state.phase === 'measure-2') {
     btnConfirmMeas.style.display = 'block';
-    btnCancelMeas.style.display = 'block';
+    btnCancelMeas.style.display  = 'block';
   }
 }
 
@@ -2142,6 +2317,66 @@ mmInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') document.getElementById('calib-ok').click();
 });
 
+/* ============================================================
+   LEFT PANEL — open / close + secondary action buttons
+   ============================================================ */
+const leftPanel        = document.getElementById('left-panel');
+const btnOpenLeftPanel = document.getElementById('btn-open-left-panel');
+const leftPanelClose   = document.getElementById('left-panel-close');
+const btnListPanel     = document.getElementById('btn-list-panel');
+const btnCleanPanel    = document.getElementById('btn-clean-panel');
+const btnViewOrigPanel = document.getElementById('btn-view-original-panel');
+const btnSavePanel     = document.getElementById('btn-save-panel');
+const btnSharePanel    = document.getElementById('btn-share-panel');
+
+function openLeftPanel()  {
+  leftPanel.classList.add('show');
+  panelBackdrop.classList.add('show');
+}
+function closeLeftPanel() {
+  leftPanel.classList.remove('show');
+  /* Only remove backdrop if the right panel is also closed */
+  if (!panel.classList.contains('show')) {
+    panelBackdrop.classList.remove('show');
+  }
+}
+
+leftPanelClose.addEventListener('click', closeLeftPanel);
+btnOpenLeftPanel.addEventListener('click', openLeftPanel);
+
+/* Reuse the existing backdrop to close whichever panel is open */
+panelBackdrop.addEventListener('click', () => {
+  closePanel();      // closes right panel (dimensions)
+  closeLeftPanel();  // closes left panel
+});
+
+/* Secondary buttons inside the left panel — same logic as the
+   original toolbar buttons they replace */
+btnListPanel.addEventListener('click', () => {
+  closeLeftPanel();
+  openPanel();
+});
+btnCleanPanel.addEventListener('click', () => {
+  closeLeftPanel();
+  document.body.classList.add('clean');
+});
+btnViewOrigPanel.addEventListener('click', startViewOriginal);
+btnViewOrigPanel.addEventListener('mousedown',   startViewOriginal);
+btnViewOrigPanel.addEventListener('mouseup',     stopViewOriginal);
+btnViewOrigPanel.addEventListener('mouseleave',  stopViewOriginal);
+btnViewOrigPanel.addEventListener('touchstart',
+  (e) => { e.preventDefault(); startViewOriginal(); }, { passive: false });
+btnViewOrigPanel.addEventListener('touchend',    stopViewOriginal);
+btnViewOrigPanel.addEventListener('touchcancel', stopViewOriginal);
+
+btnSavePanel.addEventListener('click', () => {
+  closeLeftPanel();
+  btnSave.click();
+});
+btnSharePanel.addEventListener('click', () => {
+  closeLeftPanel();
+  btnShare.click();
+});
 
 /* ============================================================
    LIST BUTTON + STARTUP
