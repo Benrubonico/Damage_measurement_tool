@@ -386,7 +386,7 @@ body.clean #fab-exit-clean { display: flex !important; }
   top: 50%;
   left: 0;
   transform: translateY(-50%);
-  width: 28px;
+  width: 36px;
   height: 140px;
   background: #1a1a1a;
   border: 1px solid #333;
@@ -1622,7 +1622,8 @@ function redraw() {
        - Manual (user picked two reference points): two yellow
          crosses joined by a diagonal line, as before. Unchanged.
      ---------------------------------------------------------- */
-  if (state.calibMarkerCorners) {
+    if (cleanMode) return;
+     if (state.calibMarkerCorners) {
     /* Auto-detected marker: closed quadrilateral, no corner
        crosses (the rectangle is enough). Tilted calibrations use
        the same yellow line, since the badge already conveys the
@@ -1649,8 +1650,7 @@ function redraw() {
     }
   }
 
-  if (cleanMode) return;
-  state.dimensions.forEach(m => {
+    state.dimensions.forEach(m => {
     if (m.hidden) return;
     drawCross(m.a.x, m.a.y, '#e53935', crossSize, stroke);
     drawCross(m.b.x, m.b.y, '#e53935', crossSize, stroke);
