@@ -213,10 +213,13 @@
     #fab-fit.show { display: flex; }
 
     body.clean #hint,
-    body.clean #scale-badge,
-    body.clean #controls,
-    body.clean #fab-fit { display: none !important; }
-    body.clean #fab-exit-clean { display: flex !important; }
+body.clean #scale-badge,
+body.clean #controls,
+body.clean #fab-fit,
+body.clean #left-panel,
+body.clean #left-panel-tab,
+body.clean #panel-backdrop { display: none !important; }
+body.clean #fab-exit-clean { display: flex !important; }
 
     #fab-exit-clean {
       position: fixed;
@@ -383,8 +386,8 @@
   top: 50%;
   left: 0;
   transform: translateY(-50%);
-  width: 40px;
-  height: 80px;
+  width: 28px;
+  height: 140px;
   background: #1a1a1a;
   border: 1px solid #333;
   border-left: none;
@@ -1545,6 +1548,7 @@ function baseFontSize() {
 
 function redraw() {
   if (!state.photo) return;
+  const cleanMode = document.body.classList.contains('clean');
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = '#000';
@@ -1587,7 +1591,7 @@ function redraw() {
      zoom level). We use setLineDash rather than a CSS trick
      because we are drawing into a canvas, not using DOM elements.
      ---------------------------------------------------------- */
-  if (state.showSafeZone && !exportMode) {
+  if (state.showSafeZone && !exportMode && !cleanMode) {
     const margin = (1 - SAFE_ZONE_RATIO) / 2;   // 0.15 for 70%
     const szX = canvas.width  * margin;
     const szY = canvas.height * margin;
@@ -1645,6 +1649,7 @@ function redraw() {
     }
   }
 
+  if (cleanMode) return;
   state.dimensions.forEach(m => {
     if (m.hidden) return;
     drawCross(m.a.x, m.a.y, '#e53935', crossSize, stroke);
