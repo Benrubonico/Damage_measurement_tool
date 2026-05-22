@@ -1958,6 +1958,48 @@ function getDimAtPoint(imgPoint) {
   return best;
 }
 
+/* ============================================================
+   DIMENSION DRAG — apply offset update
+   ============================================================
+   Called on every move event while a dimension is being dragged.
+   Computes the displacement from the drag start position in image
+   space, projects it onto the perpendicular axis of the dimension,
+   and adds that projection to the stored start offset.
+
+   Why project onto the perpendicular axis:
+   The user may move their finger in any direction. Only the
+   component of that movement that is perpendicular to the
+   dimension line should change the offset — the parallel
+   component just means the finger drifted sideways, which we
+   deliberately ignore. This gives the same "guided" feel as
+   dragging a dimension in CATIA.
+   ============================================================ */
+function applyDimDrag(imgPos) {
+  const m = state.draggingDim;
+  if (!m || !state.dragStartImgPos) return;
+
+  const ax = m.a.x, ay = m.a.y;
+  const bx = m.b.x, by = m.b.y;
+  const len = Math.hypot(bx - ax, by - ay);
+  if (len < 1) return;
+
+  /* Perpendicular unit vector (same convention as drawDimension) */
+  const ux = (bx - ax) / len;
+  const uy = (by - ay) / len;
+  const px = -uy;
+  const py =  ux;
+
+  /* Displacement from drag start in image space */
+  const ddx = imgPos.x - state.dragStartImgPos.x;
+  const ddy = imgPos.y - state.dragStartImgPos.y;
+
+  /* Project displacement onto the perpendicular axis */
+  const perpDelta = ddx * px + ddy * py;
+
+  m.dimOffset = state.dragStartOffset + perpDelta;
+  redraw();
+}
+
 function onTouchStart(evt) {
   evt.preventDefault();
   if (evt.touches.length === 2) {
@@ -1994,6 +2036,14 @@ function onTouchMove(evt) {
   }
   else if (evt.touches.length === 1 && !state.isPinching) {
     const t = evt.touches[0];
+
+    /* Dimension drag takes priority over pan */
+    if (state.draggingDim) {
+      const imgPos = getImagePoint(t.clientX, t.clientY);
+      applyDimDrag(imgPos);
+      return;
+    }
+
     const dx = t.clientX - state.touchStartPos.x;
     const dy = t.clientY - state.touchStartPos.y;
     if (Math.hypot(dx, dy) > TAP_THRESHOLD_PX && state.scale > 1.01) {
@@ -2023,6 +2073,8 @@ function onTouchEnd(evt) {
     handleTap(getImagePoint(t.clientX, t.clientY));
   }
   state.isPanning = false;
+  state.draggingDim = null;
+  state.dragStartImgPos = null;
 }
 function onMouseDown(evt) {
   evt.preventDefault();
@@ -2043,6 +2095,14 @@ function onMouseDown(evt) {
 }
 function onMouseMove(evt) {
   if (!state.mouseDown) return;
+
+  /* Dimension drag takes priority over pan */
+  if (state.draggingDim) {
+    const imgPos = getImagePoint(evt.clientX, evt.clientY);
+    applyDimDrag(imgPos);
+    return;
+  }
+
   const dx = evt.clientX - state.touchStartPos.x;
   const dy = evt.clientY - state.touchStartPos.y;
   if (Math.hypot(dx, dy) > TAP_THRESHOLD_PX && state.scale > 1.01) {
@@ -2056,6 +2116,14 @@ function onMouseMove(evt) {
 function onMouseUp(evt) {
   if (!state.mouseDown) return;
   state.mouseDown = false;
+
+  /* End dimension drag — do not fire a tap */
+  if (state.draggingDim) {
+    state.draggingDim = null;
+    state.dragStartImgPos = null;
+    return;
+  }
+
   if (state.isPanning) { state.isPanning = false; return; }
   const dx = evt.clientX - state.touchStartPos.x;
   const dy = evt.clientY - state.touchStartPos.y;
