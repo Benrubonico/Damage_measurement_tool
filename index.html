@@ -505,6 +505,69 @@ details[open] > summary::after   { content: '▾'; }
        100, this has 50). Hidden via [hidden] attribute once the
        engine is ready.
        ============================================================ */
+    
+    /* ============================================================
+       ANNOTATION TOOL BUTTONS (phase 11)
+       ============================================================ */
+    .ann-tool {
+      flex: 1;
+      padding: 7px 4px;
+      font-size: 11px;
+      background: #252525;
+      border: 1px solid #383838;
+      border-radius: 6px;
+      color: #ccc;
+      min-width: 0;
+    }
+    .ann-tool.ann-active {
+      background: #1a3a5c;
+      border-color: #2a6fdb;
+      color: #7ab3ff;
+    }
+    .ann-width {
+      flex: 1;
+      padding: 7px 4px;
+      background: #252525;
+      border: 1px solid #383838;
+      border-radius: 5px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 0;
+    }
+    .ann-width.ann-width-sel {
+      border-color: #2a6fdb;
+      background: #1a2a3a;
+    }
+    .ann-tsize {
+      flex: 1;
+      padding: 6px 4px;
+      font-size: 12px;
+      background: #252525;
+      border: 1px solid #383838;
+      border-radius: 5px;
+      color: #ccc;
+      min-width: 0;
+    }
+    .ann-tsize.ann-tsize-sel {
+      border-color: #2a6fdb;
+      background: #1a2a3a;
+      color: #7ab3ff;
+    }
+    .ann-action {
+      flex: 1;
+      padding: 7px 4px;
+      font-size: 11px;
+      background: #252525;
+      border: 1px solid #383838;
+      border-radius: 6px;
+      color: #ccc;
+      min-width: 0;
+    }
+    .ann-action.ann-action-danger {
+      color: #e57373;
+    }
+    
     #opencv-loading {
       position: fixed;
       inset: 0;
@@ -762,6 +825,77 @@ details[open] > summary::after   { content: '▾'; }
     <button id="left-panel-close">✕</button>
   </header>
 
+<!-- ============================================================
+       ANNOTATION TOOLS SECTION (phase 11)
+       Visible only when a photo is loaded (controlled via JS in
+       updateButtons). Contains pen / eraser / text tool toggles,
+       colour picker, stroke width selector, text size selector,
+       and undo / clear-all actions.
+       ============================================================ -->
+  <div id="annotation-tools" style="display:none; border-bottom: 1px solid #333;">
+    <div style="padding: 8px 12px 4px;">
+      <span style="font-size: 10px; text-transform: uppercase; letter-spacing: 0.8px; color: #666; font-weight: 600;">✏ Annotation tools</span>
+    </div>
+    <div style="padding: 4px 10px 10px; display: flex; flex-direction: column; gap: 7px;">
+
+      <!-- Tool toggles: Pen / Eraser / Text -->
+      <div style="display: flex; gap: 5px;">
+        <button id="btn-tool-pen"    class="ann-tool">✏ Pen</button>
+        <button id="btn-tool-eraser" class="ann-tool">◻ Eraser</button>
+        <button id="btn-tool-text"   class="ann-tool">T Text</button>
+      </div>
+
+      <!-- Colour picker -->
+      <div>
+        <div style="font-size: 11px; color: #888; margin-bottom: 3px;">Color</div>
+        <select id="ann-color-select" style="width:100%; background:#252525; border:1px solid #383838; color:#ddd; border-radius:5px; padding:5px 6px; font-size:12px;">
+          <option value="#e53935">🔴 Red</option>
+          <option value="#ffeb3b">🟡 Yellow</option>
+          <option value="#ffffff">⬜ White</option>
+          <option value="#000000">⬛ Black</option>
+          <option value="#1e88e5">🔵 Blue</option>
+          <option value="#43a047">🟢 Green</option>
+          <option value="#ff9800">🟠 Orange</option>
+          <option value="#e91e63">🩷 Pink</option>
+        </select>
+      </div>
+
+      <!-- Stroke width (three visual buttons) -->
+      <div>
+        <div style="font-size: 11px; color: #888; margin-bottom: 3px;">Stroke width</div>
+        <div style="display: flex; gap: 5px;">
+          <button id="btn-width-thin"   class="ann-width" data-width="2"  title="Thin">
+            <div style="width:28px; height:2px;  background:#aaa; border-radius:1px;"></div>
+          </button>
+          <button id="btn-width-medium" class="ann-width ann-width-sel" data-width="5"  title="Medium">
+            <div style="width:28px; height:5px;  background:#aaa; border-radius:2px;"></div>
+          </button>
+          <button id="btn-width-thick"  class="ann-width" data-width="10" title="Thick">
+            <div style="width:28px; height:9px;  background:#aaa; border-radius:3px;"></div>
+          </button>
+        </div>
+      </div>
+
+      <!-- Text size (only relevant when Text tool is active;
+           kept visible always to avoid layout shifts) -->
+      <div id="ann-textsize-row">
+        <div style="font-size: 11px; color: #888; margin-bottom: 3px;">Text size <span style="font-size:10px; color:#555;">(text tool only)</span></div>
+        <div style="display: flex; gap: 5px;">
+          <button id="btn-tsize-small"  class="ann-tsize" data-tsize="small">S</button>
+          <button id="btn-tsize-medium" class="ann-tsize ann-tsize-sel" data-tsize="medium">M</button>
+          <button id="btn-tsize-large"  class="ann-tsize" data-tsize="large">L</button>
+        </div>
+      </div>
+
+      <!-- Undo / Clear all -->
+      <div style="display: flex; gap: 5px; margin-top: 2px;">
+        <button id="btn-ann-undo"  class="ann-action">↩ Undo</button>
+        <button id="btn-ann-clear" class="ann-action ann-action-danger">🗑 Clear all</button>
+      </div>
+
+    </div>
+  </div>
+
   <div class="how-to">
     <details>
       <summary>How to use</summary>
@@ -820,7 +954,7 @@ details[open] > summary::after   { content: '▾'; }
   </div>
 
   <div class="panel-actions">
-    <button id="btn-list-panel"          style="display:none">📋 Dimensions edit</button>
+    <button id="btn-list-panel"          style="display:none">📋 Dimensions & Annotations</button>
     <button id="btn-clean-panel"         style="display:none">👁 Clean picture</button>
     <button id="btn-save-panel"          style="display:none">💾 Save</button>
     <button id="btn-share-panel"         style="display:none">📤 Share</button>
@@ -1201,7 +1335,19 @@ const state = {
   /* Dimension line dragging */
   draggingDim: null,       // the dimension object being dragged, or null
   dragStartOffset: 0,      // dimOffset value at the moment dragging began
-  dragStartImgPos: null    // image-space position where the drag started
+  dragStartImgPos: null,   // image-space position where the drag started
+
+  /* ---- Annotations (phase 11) ---- */
+  annotations: [],         // array of {type:'stroke'|'text', ...} objects
+  annotationHistory: [],   // snapshots of annotations array for full undo
+  penActive: false,        // true while the pen tool is the active mode
+  eraserActive: false,     // true while the eraser tool is active
+  textActive: false,       // true while the text stamp tool is active
+  editingText: null,       // reference to the text annotation being edited in-place, or null
+  penColor: '#e53935',     // currently selected colour (hex string)
+  penWidth: 5,             // currently selected stroke width in image px (2 / 5 / 10)
+  textSize: 'medium',      // currently selected text size ('small' | 'medium' | 'large')
+  currentStroke: null      // the stroke object being drawn right now (between touchstart and touchend)
 };
 
 const welcome = document.getElementById('welcome');
@@ -2379,6 +2525,30 @@ function renderPanelList() {
     `;
     panelList.appendChild(item);
   });
+
+  /* Text annotations listed below dimensions.
+     Only a delete action — rename and hide don't apply to text stamps. */
+  const texts = state.annotations.filter(a => a.type === 'text');
+  if (texts.length > 0) {
+    const sep = document.createElement('div');
+    sep.style.cssText = 'font-size:10px; color:#555; text-transform:uppercase; ' +
+                        'letter-spacing:0.7px; padding:8px 4px 4px;';
+    sep.textContent = 'Text stamps';
+    panelList.appendChild(sep);
+
+    texts.forEach(t => {
+      const item = document.createElement('div');
+      item.className = 'item';
+      item.style.borderLeft = '3px solid #2a6fdb';
+      item.innerHTML = `
+        <div class="row">
+          <span class="name" style="color:#7ab3ff;">${escapeHtml(t.label)}</span>
+          <button data-act="delete-text" data-id="${t.id}" class="danger" style="flex:0 0 auto; min-width:0; padding:6px 10px;">🗑</button>
+        </div>
+      `;
+      panelList.appendChild(item);
+    });
+  }
 }
 function escapeHtml(s) {
   return s.replace(/[&<>"']/g, c => ({
@@ -2402,6 +2572,14 @@ panelList.addEventListener('click', (e) => {
       state.dimensions = state.dimensions.filter(x => x.id !== id);
       renderPanelList(); redraw(); updateHint();
     }
+
+else if (act === 'delete-text') {
+    const tid = btn.dataset.id;
+    pushAnnotationHistory();
+    state.annotations = state.annotations.filter(a => a.id !== tid);
+    renderPanelList(); redraw();
+  }
+
   }
   else if (act === 'rename') {
     state.renamingId = id;
@@ -2502,6 +2680,10 @@ function updateButtons() {
 
   /* Floating view-original button */
   fabViewOriginal.style.display = 'none';
+
+/* Show annotation tools section whenever a photo is loaded */
+  const annTools = document.getElementById('annotation-tools');
+  if (annTools) annTools.style.display = (state.phase === 'init') ? 'none' : 'block';
 
   if (state.phase === 'init') return;
 
