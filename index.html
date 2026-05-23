@@ -2558,6 +2558,31 @@ function escapeHtml(s) {
   }[c]));
 }
 
+/* ============================================================
+   ANNOTATION HISTORY — push / undo / clear
+   ============================================================
+   Temporary stub: full implementation arrives in step 7.
+   Defined here so callers (delete-text) don't throw a
+   ReferenceError before step 7 is applied.
+   ============================================================ */
+function pushAnnotationHistory() {
+  state.annotationHistory.push(
+    JSON.parse(JSON.stringify(state.annotations))
+  );
+}
+
+function undoAnnotation() {
+  if (state.annotationHistory.length === 0) return;
+  state.annotations = state.annotationHistory.pop();
+  renderPanelList(); redraw();
+}
+
+function clearAnnotations() {
+  pushAnnotationHistory();
+  state.annotations = [];
+  renderPanelList(); redraw();
+}
+
 panelList.addEventListener('click', (e) => {
   const btn = e.target.closest('button[data-act]');
   if (!btn) return;
