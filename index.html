@@ -295,63 +295,6 @@ body.clean #fab-exit-clean { display: flex !important; }
       color: #fff;
     }
 
-    #panel {
-      position: fixed;
-      top: 0; right: 0; bottom: 0;
-      width: 85%;
-      max-width: 340px;
-      background: #1a1a1a;
-      border-left: 1px solid #333;
-      transform: translateX(100%);
-      transition: transform 0.25s ease-out;
-      z-index: 25;
-      display: flex;
-      flex-direction: column;
-    }
-    #panel.show { transform: translateX(0); }
-    #panel header {
-      padding: 16px;
-      border-bottom: 1px solid #333;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-    #panel header h3 { font-size: 16px; }
-    #panel-close {
-      background: #333;
-      width: 32px;
-      height: 32px;
-      border-radius: 50%;
-      font-size: 18px;
-      flex: 0 0 auto;
-      padding: 0;
-      min-width: 0;
-    }
-    #panel-list { flex: 1; overflow-y: auto; padding: 8px; }
-    #panel-empty { padding: 32px 16px; text-align: center; color: #666; font-size: 14px; }
-    .item {
-      background: #252525;
-      border-radius: 8px;
-      padding: 12px;
-      margin-bottom: 8px;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-    .item.hidden { opacity: 0.45; }
-    .item .name { font-weight: 600; font-size: 14px; }
-    .item .mm   { color: #e53935; font-weight: 700; font-size: 16px; }
-    .item .row  { display: flex; justify-content: space-between; align-items: center; }
-    .item .actions { display: flex; gap: 6px; }
-    .item .actions button {
-      flex: 0 0 auto;
-      min-width: 0;
-      padding: 8px 10px;
-      font-size: 13px;
-      background: #333;
-    }
-    .item .actions button.danger { background: #c0392b; }
-
     #panel-backdrop {
       position: fixed;
       inset: 0;
@@ -710,6 +653,7 @@ details[open] > summary::after   { content: '▾'; }
     <button id="btn-cancel-meas"    class="secondary" style="display:none">Cancel</button>
     <button id="btn-add-dim"        class="primary"   style="display:none">➕ Add dimension</button>
     <button id="fab-view-original"  class="secondary" style="display:none">⊙ View original</button>
+    <button id="fab-heatmap"        class="secondary" style="display:none">◎ Accuracy lens map</button>
      </div>
 </div>
 
@@ -772,10 +716,11 @@ details[open] > summary::after   { content: '▾'; }
 
 <div id="modal-rename" class="modal">
   <div class="box">
-    <h3>Rename dimension</h3>
+    <h3>Edit dimension</h3>
     <input id="rename-input" type="text" placeholder="Dimension name" maxlength="30" />
     <div class="buttons">
       <button id="rename-cancel" class="secondary">Cancel</button>
+      <button id="rename-delete" class="danger">🗑 Delete</button>
       <button id="rename-ok">Accept</button>
     </div>
   </div>
@@ -923,7 +868,6 @@ details[open] > summary::after   { content: '▾'; }
   </div>
 
   <div class="panel-actions">
-    <button id="btn-list-panel"          style="display:none">📋 Dimensions & Annotations</button>
     <button id="btn-clean-panel"         style="display:none">👁 Clean picture</button>
     <button id="btn-save-panel"          style="display:none">💾 Save</button>
     <button id="btn-share-panel"         style="display:none">📤 Share</button>
@@ -989,15 +933,6 @@ details[open] > summary::after   { content: '▾'; }
 </div>
 
 <div id="panel-backdrop"></div>
-<div id="panel">
-  <header>
-    <h3>Dimensions</h3>
-    <button id="panel-close">✕</button>
-  </header>
-  <div id="panel-list">
-    <div id="panel-empty">No dimensions yet</div>
-  </div>
-</div>
 
 <script>
 
@@ -1333,6 +1268,8 @@ const state = {
      "Original" button. Causes redraw() to show the un-rectified
      photo without any overlays. Cleared on pointer-up/cancel. */
   viewingOriginal: false,
+  viewingHeatmap: false,
+  heatmapCanvas: null,
 
   /* Dimension line dragging */
   draggingDim: null,       // the dimension object being dragged, or null
@@ -1387,13 +1324,9 @@ const modalNewProject = document.getElementById('modal-new-project');
 const mmInput         = document.getElementById('mm-input');
 const renameInput     = document.getElementById('rename-input');
 
-const panel         = document.getElementById('panel');
 const panelBackdrop = document.getElementById('panel-backdrop');
-const panelList     = document.getElementById('panel-list');
-const panelClose    = document.getElementById('panel-close');
 const leftPanel        = document.getElementById('left-panel');
 const leftPanelClose   = document.getElementById('left-panel-close');
-const btnListPanel     = document.getElementById('btn-list-panel');
 const btnCleanPanel    = document.getElementById('btn-clean-panel');
 const btnSavePanel     = document.getElementById('btn-save-panel');
 const btnSharePanel    = document.getElementById('btn-share-panel');
@@ -1491,6 +1424,7 @@ function loadPhotoFromBlob(blob) {
       state.annotations = [];
       state.annotationHistory = [];
       state.currentStroke = null;
+      state.heatmapCanvas = null;
       state.showSafeZone = true;   // shown until first point is placed
       resetZoom();
       /* Try automatic calibration first. If a known ArUco marker
@@ -1751,9 +1685,13 @@ function redraw() {
   const stroke    = baseStroke() * k;
   const fontSize  = baseFontSize() * k;
 
-  /* RELIABILITY HEATMAP — phase 12 (not yet implemented).
-     Will draw a green→yellow→red gradient overlay here,
-     shown only while the user holds the heatmap button. */
+  /* RELIABILITY HEATMAP — phase 12
+     Draw the pre-built gradient canvas on top of the photo,
+     only while the user holds the heatmap button and only in
+     interactive mode (never on exported JPEGs). */
+  if (state.viewingHeatmap && state.heatmapCanvas && !exportMode) {
+    ctx.drawImage(state.heatmapCanvas, 0, 0);
+  }
 
   /* In clean mode, skip all overlays — show photo only. */
   if (cleanMode) return;
@@ -2395,8 +2333,25 @@ function onTouchEnd(evt) {
     handleTap(getImagePoint(t.clientX, t.clientY));
   }
   state.isPanning = false;
-  state.draggingDim = null;
-  state.dragStartImgPos = null;
+  /* Dimension: if the finger didn't move, it's an edit tap — open the dim editor. */
+  if (state.draggingDim && state.dragStartImgPos) {
+    const t = evt.changedTouches[0];
+    const releaseImg = getImagePoint(t.clientX, t.clientY);
+    const moved = Math.hypot(
+      releaseImg.x - state.dragStartImgPos.x,
+      releaseImg.y - state.dragStartImgPos.y
+    );
+    const dim = state.draggingDim;
+    state.draggingDim = null;
+    state.dragStartImgPos = null;
+    if (moved < TAP_THRESHOLD_PX) {
+      openDimEditor(dim);
+      return;
+    }
+  } else {
+    state.draggingDim = null;
+    state.dragStartImgPos = null;
+  }
   /* Text stamp: if the finger didn't move, it's an edit tap — open the modal. */
   if (state.draggingText && state.dragTextStartImgPos) {
     const t = evt.changedTouches[0];
@@ -2491,6 +2446,13 @@ function onMouseMove(evt) {
     redraw();
     return;
   }
+  /* Dimension drag takes priority over pan */
+  if (state.draggingDim) {
+    applyDimDrag(imgPos);
+    return;
+  }
+
+  const dx = evt.clientX - state.touchStartPos.x;
   const dy = evt.clientY - state.touchStartPos.y;
   if (Math.hypot(dx, dy) > TAP_THRESHOLD_PX && state.scale > 1.01) {
     state.isPanning = true;
@@ -2514,10 +2476,20 @@ function onMouseUp(evt) {
     return;
   }
 
-  /* End dimension drag — do not fire a tap */
-  if (state.draggingDim) {
+  /* Dimension: if pointer didn't move, it's an edit tap — open the dim editor. */
+  if (state.draggingDim && state.dragStartImgPos) {
+    const releaseImg = getImagePoint(evt.clientX, evt.clientY);
+    const moved = Math.hypot(
+      releaseImg.x - state.dragStartImgPos.x,
+      releaseImg.y - state.dragStartImgPos.y
+    );
+    const dim = state.draggingDim;
     state.draggingDim = null;
     state.dragStartImgPos = null;
+    if (moved < TAP_THRESHOLD_PX) {
+      openDimEditor(dim);
+      return;
+    }
     return;
   }
 
@@ -2624,6 +2596,79 @@ fabViewOriginal.addEventListener('touchstart',
   (e) => { e.preventDefault(); startViewOriginal(); }, { passive: false });
 fabViewOriginal.addEventListener('touchend',    stopViewOriginal);
 fabViewOriginal.addEventListener('touchcancel', stopViewOriginal);
+
+/* ============================================================
+   ACCURACY LENS MAP (phase 12)
+   ============================================================
+   buildHeatmapCanvas() pre-computes a radial gradient canvas
+   the same size as the photo. The gradient runs continuously
+   from green at the image centre to red at the corners, with
+   yellow passing through the 70% safe-zone radius. It is built
+   once per photo load and cached in state.heatmapCanvas.
+
+   The overlay is drawn in redraw() only while state.viewingHeatmap
+   is true — i.e. while the user holds the button — using
+   globalAlpha so the photo remains visible underneath.
+   It is never drawn in exportMode.
+   ============================================================ */
+function buildHeatmapCanvas() {
+  const w = canvas.width;
+  const h = canvas.height;
+  const offscreen = document.createElement('canvas');
+  offscreen.width  = w;
+  offscreen.height = h;
+  const octx = offscreen.getContext('2d');
+
+  /* Centre of the image — this is where the optical axis of the
+     camera points, so it is the point of least lens distortion. */
+  const cx = w / 2;
+  const cy = h / 2;
+
+  /* The gradient radius must reach AT LEAST the farthest corner
+     of the image (the semi-diagonal), so no corner is left
+     uncoloured. */
+  const semiDiag = Math.hypot(cx, cy);
+
+  /* The 70% safe-zone radius — not a circle but a fraction of the
+     semi-diagonal, which matches how the error model is documented:
+     error grows from centre outward regardless of direction. */
+  const safeRadius = semiDiag * SAFE_ZONE_RATIO;
+
+  const grad = octx.createRadialGradient(cx, cy, 0, cx, cy, semiDiag);
+
+  /* Stop positions are fractions of semiDiag (0 = centre, 1 = corner).
+     The three colours carry their own alpha so the photo shows through
+     even before globalAlpha is applied in redraw(). */
+  grad.addColorStop(0,                              'rgba(0, 200, 80, 0.55)');   // green  — centre
+  grad.addColorStop(safeRadius / semiDiag,          'rgba(255, 220, 0, 0.55)'); // yellow — 70% boundary
+  grad.addColorStop(1,                              'rgba(220, 30, 30, 0.65)'); // red    — corners
+
+  octx.fillStyle = grad;
+  octx.fillRect(0, 0, w, h);
+
+  state.heatmapCanvas = offscreen;
+}
+
+function startViewHeatmap() {
+  if (!state.photo) return;
+  if (!state.heatmapCanvas) buildHeatmapCanvas();
+  state.viewingHeatmap = true;
+  redraw();
+}
+function stopViewHeatmap() {
+  if (!state.viewingHeatmap) return;
+  state.viewingHeatmap = false;
+  redraw();
+}
+
+const fabHeatmap = document.getElementById('fab-heatmap');
+fabHeatmap.addEventListener('mousedown',   startViewHeatmap);
+fabHeatmap.addEventListener('mouseup',     stopViewHeatmap);
+fabHeatmap.addEventListener('mouseleave',  stopViewHeatmap);
+fabHeatmap.addEventListener('touchstart',
+  (e) => { e.preventDefault(); startViewHeatmap(); }, { passive: false });
+fabHeatmap.addEventListener('touchend',    stopViewHeatmap);
+fabHeatmap.addEventListener('touchcancel', stopViewHeatmap);
 
 /* ============================================================
    ONBOARDING
@@ -2767,102 +2812,26 @@ document.getElementById('tilted-continue').addEventListener('click', () => {
   if (marker) applyAutoCalibration(marker, true);
 });
 
-
 /* ============================================================
-   DIMENSIONS PANEL
+   DIMENSION EDITOR
+   ============================================================
+   Opens the rename modal pre-filled with the dimension's current
+   name. The delete button is always shown. Rename-ok updates the
+   name in place; delete removes the dimension entirely.
+   Same interaction pattern as the text stamp editor.
    ============================================================ */
-function openPanel() { renderPanelList(); panel.classList.add('show'); panelBackdrop.classList.add('show'); }
-function closePanel() { panel.classList.remove('show'); panelBackdrop.classList.remove('show'); }
-
-function renderPanelList() {
-  panelList.innerHTML = '';
-  if (state.dimensions.length === 0) {
-    const empty = document.createElement('div');
-    empty.id = 'panel-empty';
-    empty.textContent = 'No dimensions yet';
-    panelList.appendChild(empty);
-    return;
-  }
-  state.dimensions.forEach(m => {
-    const item = document.createElement('div');
-    item.className = 'item' + (m.hidden ? ' hidden' : '');
-    item.innerHTML = `
-      <div class="row">
-        <span class="name">${escapeHtml(m.name)}</span>
-        <span class="mm">${m.mm.toFixed(1)} mm</span>
-      </div>
-      <div class="actions">
-        <button data-act="rename" data-id="${m.id}">✏️ Rename</button>
-        <button data-act="toggle" data-id="${m.id}">${m.hidden ? '👁 Show' : '🚫 Hide'}</button>
-        <button data-act="delete" data-id="${m.id}" class="danger">🗑</button>
-      </div>
-    `;
-    panelList.appendChild(item);
-  });
-
-  /* Text annotations listed below dimensions.
-     Only a delete action — rename and hide don't apply to text stamps. */
-  const texts = state.annotations.filter(a => a.type === 'text');
-  if (texts.length > 0) {
-    const sep = document.createElement('div');
-    sep.style.cssText = 'font-size:10px; color:#555; text-transform:uppercase; ' +
-                        'letter-spacing:0.7px; padding:8px 4px 4px;';
-    sep.textContent = 'Text stamps';
-    panelList.appendChild(sep);
-
-    texts.forEach(t => {
-      const item = document.createElement('div');
-      item.className = 'item';
-      item.style.borderLeft = '3px solid #2a6fdb';
-      item.innerHTML = `
-        <div class="row">
-          <span class="name" style="color:#7ab3ff;">${escapeHtml(t.label)}</span>
-          <button data-act="delete-text" data-id="${t.id}" class="danger" style="flex:0 0 auto; min-width:0; padding:6px 10px;">🗑</button>
-        </div>
-      `;
-      panelList.appendChild(item);
-    });
-  }
+function openDimEditor(dim) {
+  state.renamingId = dim.id;
+  renameInput.value = dim.name;
+  document.getElementById('modal-rename').classList.add('show');
+  setTimeout(() => { renameInput.focus(); renameInput.select(); }, 100);
 }
+
 function escapeHtml(s) {
   return s.replace(/[&<>"']/g, c => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
   }[c]));
 }
-
-panelList.addEventListener('click', (e) => {
-  const btn = e.target.closest('button[data-act]');
-  if (!btn) return;
-  const id  = parseFloat(btn.dataset.id);
-  const act = btn.dataset.act;
-  const m   = state.dimensions.find(x => x.id === id);
-  if (!m) return;
-  if (act === 'toggle') {
-    m.hidden = !m.hidden;
-    renderPanelList(); redraw(); updateHint();
-  }
-  else if (act === 'delete') {
-    if (confirm(`Delete "${m.name}"?`)) {
-      state.dimensions = state.dimensions.filter(x => x.id !== id);
-      renderPanelList(); redraw(); updateHint();
-    }
-  }
-  else if (act === 'delete-text') {
-    const tid = btn.dataset.id;
-    pushAnnotationHistory();
-    state.annotations = state.annotations.filter(a => a.id !== tid);
-    renderPanelList(); redraw();
-  }
-  else if (act === 'rename') {
-    state.renamingId = id;
-    renameInput.value = m.name;
-    modalRename.classList.add('show');
-    setTimeout(() => { renameInput.focus(); renameInput.select(); }, 100);
-  }
-});
-
-panelClose.addEventListener('click', closePanel);
-
 
 /* ============================================================
    SAVE / SHARE
@@ -2947,7 +2916,7 @@ function updateButtons() {
     .forEach(b => b.style.display = 'none');
 
   /* Left-panel secondary buttons */
-  [btnListPanel, btnCleanPanel, btnSavePanel, btnSharePanel]
+  [btnCleanPanel, btnSavePanel, btnSharePanel]
     .forEach(b => b.style.display = 'none');
 
   /* Floating view-original button */
@@ -2968,11 +2937,11 @@ function updateButtons() {
   }
   else if (state.phase === 'measure-idle') {
     btnAddDim.style.display          = 'block';
-    btnListPanel.style.display       = 'block';
     btnCleanPanel.style.display      = 'block';
     btnSavePanel.style.display       = 'block';
     btnSharePanel.style.display      = 'block';
     if (state.originalPhoto) fabViewOriginal.style.display = 'block';
+    fabHeatmap.style.display = 'block';
     }
   else if (state.phase === 'measure-1-empty') {
     btnCancelMeas.style.display = 'block';
@@ -3047,7 +3016,6 @@ btnConfirmMeas.addEventListener('click', () => {
     dimOffset: DIM_OFFSET_DEFAULT   // perpendicular offset of the dimension line, in image px
   });
   state.pendingA = null; state.pendingB = null;
-  renderPanelList();
   setPhase('measure-idle');
 });
 
@@ -3073,11 +3041,18 @@ document.getElementById('rename-ok').addEventListener('click', () => {
   if (m) m.name = newName;
   modalRename.classList.remove('show');
   state.renamingId = null;
-  renderPanelList(); redraw();
+  redraw();
 });
 document.getElementById('rename-cancel').addEventListener('click', () => {
   modalRename.classList.remove('show');
   state.renamingId = null;
+});
+document.getElementById('rename-delete').addEventListener('click', () => {
+  if (state.renamingId == null) return;
+  state.dimensions = state.dimensions.filter(x => x.id !== state.renamingId);
+  modalRename.classList.remove('show');
+  state.renamingId = null;
+  redraw(); updateHint();
 });
 
 renameInput.addEventListener('keydown', (e) => {
@@ -3160,9 +3135,7 @@ function openLeftPanel() {
 function closeLeftPanel() {
   leftPanel.classList.remove('show');
   document.getElementById('left-panel-tab').style.display = '';
-  if (!panel.classList.contains('show')) {
-    panelBackdrop.classList.remove('show');
-  }
+  panelBackdrop.classList.remove('show');
 }
 
 leftPanelClose.addEventListener('click', closeLeftPanel);
@@ -3170,15 +3143,12 @@ document.getElementById('left-panel-tab').addEventListener('click', openLeftPane
 
 /* Reuse the existing backdrop to close whichever panel is open */
 panelBackdrop.addEventListener('click', () => {
-  closePanel();      // closes right panel (dimensions)
-  closeLeftPanel();  // closes left panel
+  closeLeftPanel();
 });
 
 /* Secondary buttons inside the left panel — same logic as the
    original toolbar buttons they replace */
-btnListPanel.addEventListener('click', () => {
-  openPanel();
-});
+
 btnCleanPanel.addEventListener('click', () => {
   closeLeftPanel();
   document.body.classList.add('clean');

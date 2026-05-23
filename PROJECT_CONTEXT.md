@@ -147,7 +147,21 @@ reaches maturity. It is not a phase of this project.
     arrowheads, draggable offset). DIM_OFFSET_DEFAULT = -40.
 11. ✅ Free annotations: freehand pen + text stamps on photo.
     Controls in Tools & Guide panel.
-12. ⏸ Measurement reliability heatmap: hold-to-show colour overlay.
+12. ✅ Measurement reliability heatmap: hold-to-show radial gradient overlay
+    (green at centre → yellow at 70% boundary → red at corners). Same
+    interaction pattern as ⊙ Original. Never appears on exported JPEGs.
+    Button: ◎ Accuracy lens map, visible in measure-idle alongside
+    ⊙ View original.
+
+    Also in this phase:
+    - Safe zone cyan rectangle removed (SAFE_ZONE_RATIO = 0.70 kept as
+      constant for heatmap calculation).
+    - Right-side dimensions panel removed entirely.
+    - Dimension edit/delete now via brief tap on the dimension line:
+      opens modal with rename + delete, same interaction pattern as
+      text stamps. Long press / drag still moves the dimension line.
+    - Two pre-existing bugs fixed: pan (missing const dx in onMouseMove)
+      and dimension drag (missing draggingDim block in onMouseMove).
 13. ⏸ Multi-marker support: detect and display all known markers,
     use largest as primary scale.
 14. ⏸ Stereometry: light 3D depth estimation from two photos.
