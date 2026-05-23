@@ -1831,6 +1831,46 @@ function redraw() {
     drawCross(state.pendingB.x, state.pendingB.y, '#e53935', crossSize, stroke);
     drawLine(state.pendingA, state.pendingB, '#e53935', stroke);
   }
+
+
+  /* ANNOTATIONS (phase 11)
+     ----------------------------------------------------------
+     Draw all saved annotations plus the stroke currently being
+     drawn (currentStroke). Both use the same rendering path so
+     the in-progress stroke looks identical to a finished one.
+     Annotations are drawn AFTER dimensions so they appear on top.
+     In export mode the stroke width is scaled up proportionally
+     to remain readable at full image resolution.
+     ---------------------------------------------------------- */
+  const annScale = exportMode ? imagePerScreenPx() : 1;
+
+  const allToDraw = state.currentStroke
+    ? [...state.annotations, state.currentStroke]
+    : state.annotations;
+
+  allToDraw.forEach(ann => {
+    if (ann.type === 'stroke') {
+      if (ann.points.length < 2) return;
+      ctx.save();
+      ctx.strokeStyle = ann.color;
+      ctx.lineWidth   = (ann.width * annScale) * k;
+      ctx.lineCap     = 'round';
+      ctx.lineJoin    = 'round';
+      ctx.beginPath();
+      ctx.moveTo(ann.points[0].x, ann.points[0].y);
+      for (let i = 1; i < ann.points.length; i++) {
+        ctx.lineTo(ann.points[i].x, ann.points[i].y);
+      }
+      ctx.stroke();
+      ctx.restore();
+    } else if (ann.type === 'text') {
+      /* Text stamps are drawn in step 7. */
+      const tFontSize = ann.size === 'small'  ? fontSize * 0.8
+                      : ann.size === 'large'  ? fontSize * 1.4
+                      : fontSize;
+      drawLabelAtPoint({ x: ann.x, y: ann.y }, ann.label, ann.color, tFontSize, k);
+    }
+  });
 }
 
 function drawCross(x, y, color, size, stroke) {
@@ -2284,6 +2324,7 @@ function onTouchEnd(evt) {
       state.touchStartPos = { x: t.clientX, y: t.clientY };
       state.panStart = { x: t.clientX, y: t.clientY, offsetX: state.offsetX, offsetY: state.offsetY };
     }
+    state.mouseDown = false;
     return;
   }
 
@@ -2342,11 +2383,9 @@ function onMouseDown(evt) {
   }
 }
 function onMouseMove(evt) {
-  if (!state.mouseDown) return;
-
   const imgPos = getImagePoint(evt.clientX, evt.clientY);
 
-  /* Pen: add point to current stroke. */
+  /* Pen: add point to current stroke (works regardless of mouseDown). */
   if (state.penActive && state.currentStroke) {
     state.currentStroke.points.push(imgPos);
     redraw();
@@ -2354,16 +2393,21 @@ function onMouseMove(evt) {
   }
 
   /* Eraser: erase continuously while dragging. */
-  if (state.eraserActive) {
+  if (state.eraserActive && state.mouseDown) {
     eraseAt(imgPos);
     return;
   }
+
+  if (!state.mouseDown) return;
 
   /* Dimension drag takes priority over pan */
   if (state.draggingDim) {
     applyDimDrag(imgPos);
     return;
   }
+
+  /* Pan — only when no drawing tool is active */
+  if (state.penActive || state.eraserActive) return;
 
   const dx = evt.clientX - state.touchStartPos.x;
   const dy = evt.clientY - state.touchStartPos.y;
@@ -3039,6 +3083,9 @@ function setActiveTool(tool) {
     .classList.toggle('ann-active', state.eraserActive);
   document.getElementById('btn-tool-text')
     .classList.toggle('ann-active', state.textActive);
+    /* Close the left panel so the backdrop doesn't intercept
+     canvas events while a drawing tool is active. */
+  if (tool) closeLeftPanel();
 }
 
 /* Tool toggles: clicking an active tool deactivates it (toggle off). */
