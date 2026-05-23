@@ -439,7 +439,11 @@ are followed:
 - Flag trade-offs and limitations honestly, even if I don't ask.
 - Don't add libraries or complexity without justifying why simpler
   options won't work.
-- Before any non-trivial edit: read the relevant code directly from the index.html attached to the   project — it is always the updated source of truth. Do NOT ask the user to paste fragments; read them from the attached file. Only ask the user for a specific fragment if there is genuine ambiguity that the attached file cannot resolve.
+- Before any non-trivial edit: read the relevant code directly from
+  the index.html attached to the project — it is always the updated
+  source of truth. Do NOT ask the user to paste fragments; read them
+  from the attached file. Only ask the user for a specific fragment
+  if there is genuine ambiguity that the attached file cannot resolve.
 - Give the user only what they need to copy-paste into their editor
   (specific fragments, new files), not whole-file replacements.
   Explain at each step what the fragment does and why, so the user
@@ -461,6 +465,55 @@ are followed:
   or screenshot they have shared, look carefully at the image.
   Do not describe image contents based on what "should" be there
   according to theory; describe what is actually visible.
+
+### Code quality rules (added after phase 11 incidents)
+
+These rules are mandatory and non-negotiable. They exist because
+several bugs in phase 11 were caused by proposing code without
+verifying it against the actual file first.
+
+- **Before proposing any code fragment that modifies an existing
+  function, read that function from the attached index.html using
+  the view tool with a line range.** Do not rely on memory of
+  earlier chat content or on what the function "should" look like.
+  The attached file is always the source of truth.
+
+- **After composing any code fragment, mentally verify these four
+  things before presenting it to the user:**
+  1. Brace balance: every `{` has a matching `}` within the same
+     scope. The fragment must not introduce an extra opening or
+     closing brace that shifts the balance of the surrounding code.
+  2. No duplicate blocks: if a block already exists in the file
+     (e.g. a comment block, a forEach, a function body), do not
+     add it a second time. Search the file for the key identifier
+     before inserting.
+  3. No use-before-declaration of `const` or `let`: if the fragment
+     uses a variable declared with `const` or `let` elsewhere in
+     `initApp()`, verify that the declaration appears before the
+     first use in document order. `const` and `let` do not hoist.
+  4. Interaction side-effects: if the fragment modifies an event
+     handler (onMouseDown, onTouchStart, etc.), trace the full
+     execution path mentally — check that every flag set in one
+     handler (e.g. `state.mouseDown`) is correctly read or reset
+     in the handlers that follow.
+
+- **When a bug report contradicts the expected behaviour of a code
+  fragment that was just delivered, do not defend the fragment.
+  Read the actual file, find the real problem, and fix it.** The
+  first step is always `grep` or `view` on the uploaded file, not
+  reasoning from memory.
+
+- **For any change that touches onTouchStart / onTouchMove /
+  onTouchEnd / onMouseDown / onMouseMove / onMouseUp: read all six
+  functions in full before proposing a change to any one of them.**
+  These functions share state flags (mouseDown, isPanning,
+  isPinching, draggingDim, currentStroke) and a change to one
+  always has potential side effects on the others.
+
+- **Never generate a whole-file replacement to fix a bug.** Always
+  use the minimum surgical change: identify the exact lines that
+  are wrong, show only those lines and their immediate context, and
+  explain why the change is correct before presenting it.
 
 ## Future ideas (not in roadmap)
 
@@ -521,7 +574,7 @@ marked with ★.
   phone's lens with a checkerboard pattern would remove the
   residual radial distortion that survives perspective correction.
   Would push best-case error below 0.5%.
-  - **Web Workers for OpenCV processing.** Today the main browser
+- **Web Workers for OpenCV processing.** Today the main browser
   thread briefly freezes while OpenCV processes a heavy photo. Moving
   detection and rectification to a Web Worker would keep the UI
   responsive during processing. Most relevant before phase 15
@@ -793,8 +846,7 @@ Phase 11 covers free annotations directly on the photo:
      a short label (e.g. "dent class 2", "revisar"). The label
      appears at that point with the same background box style as
      the dimension labels.
-  3. Undo: a single undo step (remove the last annotation, whether
-     stroke or text).
+  3. Undo: full history (multiple undo steps), not just one step.
   4. Clear all annotations button.
   5. All controls live inside the Tools & Guide left panel, not in
      the main toolbar.
@@ -802,6 +854,8 @@ Phase 11 covers free annotations directly on the photo:
      loaded.
   7. On export (Save / Share), annotations are baked into the JPEG
      together with the dimension overlays.
+  8. Text stamps are editable in-place with a tap/click directly on
+     the canvas, like editing text in PowerPoint.
 
 Before proposing anything, read the current left panel HTML
 structure and the panel-actions buttons block to understand what
