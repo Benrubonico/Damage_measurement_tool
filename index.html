@@ -472,6 +472,15 @@ body.clean #fab-exit-clean { display: flex !important; }
   justify-content: space-between;
   align-items: center;
 }
+#annotation-tools .how-to summary {
+  color: #c084fc;
+  border-left: 3px solid #A100FF;
+  padding-left: 8px;
+  border-radius: 0;
+}
+#annotation-tools .how-to summary:hover {
+  color: #d8b4fe;
+}
 #left-panel .how-to summary::after { content: '▸'; font-size: 12px; }
 details[open] > summary::after   { content: '▾'; }
 #left-panel .how-to .content {
@@ -833,70 +842,81 @@ details[open] > summary::after   { content: '▾'; }
        and undo / clear-all actions.
        ============================================================ -->
   <div id="annotation-tools" style="display:none; border-bottom: 1px solid #333;">
-    <div style="padding: 8px 12px 4px;">
-      <span style="font-size: 10px; text-transform: uppercase; letter-spacing: 0.8px; color: #666; font-weight: 600;">✏ Annotation tools</span>
-    </div>
-    <div style="padding: 4px 10px 10px; display: flex; flex-direction: column; gap: 7px;">
+    <div class="how-to">
+      <details id="ann-tools-details">
+        <summary>✏ Annotation tools</summary>
+        <div class="content" style="display: flex; flex-direction: column; gap: 7px; padding-top: 8px;">
 
-      <!-- Tool toggles: Pen / Eraser / Text -->
-      <div style="display: flex; gap: 5px;">
-        <button id="btn-tool-pen"    class="ann-tool">✏ Pen</button>
-        <button id="btn-tool-eraser" class="ann-tool">◻ Eraser</button>
-        <button id="btn-tool-text"   class="ann-tool">T Text</button>
-      </div>
+          <!-- Tool toggles: Pen / Eraser / Text -->
+          <div>
+            <div style="font-size: 11px; color: #888; margin-bottom: 4px;">Tool</div>
+            <div style="display: flex; gap: 5px;">
+              <button id="btn-tool-pen"    class="ann-tool">✏ Pen</button>
+              <button id="btn-tool-eraser" class="ann-tool">◻ Eraser</button>
+              <button id="btn-tool-text"   class="ann-tool">T Text</button>
+            </div>
+          </div>
 
-      <!-- Colour picker -->
-      <div>
-        <div style="font-size: 11px; color: #888; margin-bottom: 3px;">Color</div>
-        <select id="ann-color-select" style="width:100%; background:#252525; border:1px solid #383838; color:#ddd; border-radius:5px; padding:5px 6px; font-size:12px;">
-          <option value="#e53935">🔴 Red</option>
-          <option value="#ffeb3b">🟡 Yellow</option>
-          <option value="#ffffff">⬜ White</option>
-          <option value="#000000">⬛ Black</option>
-          <option value="#1e88e5">🔵 Blue</option>
-          <option value="#43a047">🟢 Green</option>
-          <option value="#ff9800">🟠 Orange</option>
-          <option value="#e91e63">🩷 Pink</option>
-        </select>
-      </div>
+          <!-- Colour picker -->
+          <div>
+            <div style="font-size: 11px; color: #888; margin-bottom: 3px;">Color</div>
+            <select id="ann-color-select" style="width:100%; background:#252525; border:1px solid #383838; color:#ddd; border-radius:5px; padding:5px 6px; font-size:12px;">
+              <option value="#e53935">🔴 Red</option>
+              <option value="#ffeb3b">🟡 Yellow</option>
+              <option value="#ffffff">⬜ White</option>
+              <option value="#000000">⬛ Black</option>
+              <option value="#1e88e5">🔵 Blue</option>
+              <option value="#43a047">🟢 Green</option>
+              <option value="#ff9800">🟠 Orange</option>
+              <option value="#e91e63">🩷 Pink</option>
+            </select>
+          </div>
 
-      <!-- Stroke width (three visual buttons) -->
-      <div>
-        <div style="font-size: 11px; color: #888; margin-bottom: 3px;">Stroke width</div>
-        <div style="display: flex; gap: 5px;">
-          <button id="btn-width-thin"   class="ann-width" data-width="2"  title="Thin">
-            <div style="width:28px; height:2px;  background:#aaa; border-radius:1px;"></div>
-          </button>
-          <button id="btn-width-medium" class="ann-width ann-width-sel" data-width="5"  title="Medium">
-            <div style="width:28px; height:5px;  background:#aaa; border-radius:2px;"></div>
-          </button>
-          <button id="btn-width-thick"  class="ann-width" data-width="10" title="Thick">
-            <div style="width:28px; height:9px;  background:#aaa; border-radius:3px;"></div>
-          </button>
+          <!-- Stroke width (three visual buttons) -->
+          <div>
+            <div style="font-size: 11px; color: #888; margin-bottom: 3px;">Stroke width</div>
+            <div style="display: flex; gap: 5px;">
+              <button id="btn-width-thin"   class="ann-width" data-width="2"  title="Thin">
+                <div style="width:28px; height:2px;  background:#aaa; border-radius:1px;"></div>
+              </button>
+              <button id="btn-width-medium" class="ann-width ann-width-sel" data-width="5"  title="Medium">
+                <div style="width:28px; height:5px;  background:#aaa; border-radius:2px;"></div>
+              </button>
+              <button id="btn-width-thick"  class="ann-width" data-width="10" title="Thick">
+                <div style="width:28px; height:9px;  background:#aaa; border-radius:3px;"></div>
+              </button>
+            </div>
+          </div>
+
+          <!-- Text size -->
+          <div id="ann-textsize-row">
+            <div style="font-size: 11px; color: #888; margin-bottom: 3px;">Text size <span style="font-size:10px; color:#555;">(text tool only)</span></div>
+            <div style="display: flex; gap: 5px;">
+              <button id="btn-tsize-small"  class="ann-tsize" data-tsize="small">S</button>
+              <button id="btn-tsize-medium" class="ann-tsize ann-tsize-sel" data-tsize="medium">M</button>
+              <button id="btn-tsize-large"  class="ann-tsize" data-tsize="large">L</button>
+            </div>
+          </div>
+
+          <!-- Undo / Clear all -->
+          <div style="display: flex; gap: 5px; margin-top: 2px;">
+            <button id="btn-ann-undo"  class="ann-action">↩ Undo</button>
+            <button id="btn-ann-clear" class="ann-action ann-action-danger">🗑 Clear all</button>
+          </div>
+
         </div>
-      </div>
-
-      <!-- Text size (only relevant when Text tool is active;
-           kept visible always to avoid layout shifts) -->
-      <div id="ann-textsize-row">
-        <div style="font-size: 11px; color: #888; margin-bottom: 3px;">Text size <span style="font-size:10px; color:#555;">(text tool only)</span></div>
-        <div style="display: flex; gap: 5px;">
-          <button id="btn-tsize-small"  class="ann-tsize" data-tsize="small">S</button>
-          <button id="btn-tsize-medium" class="ann-tsize ann-tsize-sel" data-tsize="medium">M</button>
-          <button id="btn-tsize-large"  class="ann-tsize" data-tsize="large">L</button>
-        </div>
-      </div>
-
-      <!-- Undo / Clear all -->
-      <div style="display: flex; gap: 5px; margin-top: 2px;">
-        <button id="btn-ann-undo"  class="ann-action">↩ Undo</button>
-        <button id="btn-ann-clear" class="ann-action ann-action-danger">🗑 Clear all</button>
-      </div>
-
+      </details>
     </div>
   </div>
 
-  <div class="how-to">
+  <div class="panel-actions">
+    <button id="btn-list-panel"          style="display:none">📋 Dimensions & Annotations</button>
+    <button id="btn-clean-panel"         style="display:none">👁 Clean picture</button>
+    <button id="btn-save-panel"          style="display:none">💾 Save</button>
+    <button id="btn-share-panel"         style="display:none">📤 Share</button>
+  </div>
+
+  <div class="how-to" style="border-top: 1px solid #222;">
     <details>
       <summary>How to use</summary>
       <div class="content">
@@ -953,24 +973,6 @@ details[open] > summary::after   { content: '▾'; }
     </details>
   </div>
 
-  <div class="panel-actions">
-    <button id="btn-list-panel"          style="display:none">📋 Dimensions & Annotations</button>
-    <button id="btn-clean-panel"         style="display:none">👁 Clean picture</button>
-    <button id="btn-save-panel"          style="display:none">💾 Save</button>
-    <button id="btn-share-panel"         style="display:none">📤 Share</button>
-  </div>
-
-</div>
-
-<div id="panel-backdrop"></div>
-<div id="panel">
-  <header>
-    <h3>Dimensions</h3>
-    <button id="panel-close">✕</button>
-  </header>
-  <div id="panel-list">
-    <div id="panel-empty">No dimensions yet</div>
-  </div>
 </div>
 
 <script>
@@ -2559,10 +2561,22 @@ function escapeHtml(s) {
 panelList.addEventListener('click', (e) => {
   const btn = e.target.closest('button[data-act]');
   if (!btn) return;
-  const id  = parseFloat(btn.dataset.id);
   const act = btn.dataset.act;
-  const m   = state.dimensions.find(x => x.id === id);
+
+  /* delete-text operates on annotations, not dimensions,
+     so it is handled before the dimension lookup below. */
+  if (act === 'delete-text') {
+    const tid = btn.dataset.id;
+    pushAnnotationHistory();
+    state.annotations = state.annotations.filter(a => a.id !== tid);
+    renderPanelList(); redraw();
+    return;
+  }
+
+  const id = parseFloat(btn.dataset.id);
+  const m  = state.dimensions.find(x => x.id === id);
   if (!m) return;
+
   if (act === 'toggle') {
     m.hidden = !m.hidden;
     renderPanelList(); redraw(); updateHint();
@@ -2572,14 +2586,6 @@ panelList.addEventListener('click', (e) => {
       state.dimensions = state.dimensions.filter(x => x.id !== id);
       renderPanelList(); redraw(); updateHint();
     }
-
-else if (act === 'delete-text') {
-    const tid = btn.dataset.id;
-    pushAnnotationHistory();
-    state.annotations = state.annotations.filter(a => a.id !== tid);
-    renderPanelList(); redraw();
-  }
-
   }
   else if (act === 'rename') {
     state.renamingId = id;
