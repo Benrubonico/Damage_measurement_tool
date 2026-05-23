@@ -781,6 +781,18 @@ details[open] > summary::after   { content: '▾'; }
   </div>
 </div>
 
+<div id="modal-text-stamp" class="modal">
+  <div class="box">
+    <h3>Text stamp</h3>
+    <p class="muted">This text will appear on the photo at the point you tapped.</p>
+    <input id="text-stamp-input" type="text" placeholder="e.g. Dent in to out" maxlength="40" />
+    <div class="buttons">
+      <button id="text-stamp-cancel" class="secondary">Cancel</button>
+      <button id="text-stamp-ok">Place</button>
+    </div>
+  </div>
+</div>
+
 <div id="modal-new-project" class="modal">
   <div class="box">
     <h3>Start a new project?</h3>
@@ -1349,6 +1361,10 @@ const state = {
   draggingDim: null,       // the dimension object being dragged, or null
   dragStartOffset: 0,      // dimOffset value at the moment dragging began
   dragStartImgPos: null,   // image-space position where the drag started
+  draggingText: null,      // the text annotation being dragged, or null
+  dragTextStartImgPos: null, // image-space position where the text drag started
+  dragTextOrigin: null,    // {x,y} of the annotation at drag start
+  editingTextAnn: null,    // annotation being edited in the modal, or null (null = creating new)
 
   /* ---- Annotations (phase 11) ---- */
   annotations: [],         // array of {type:'stroke'|'text', ...} objects
@@ -1495,6 +1511,9 @@ function loadPhotoFromBlob(blob) {
       state.pendingA = null;
       state.pendingB = null;
       state.dimCounter = 0;
+      state.annotations = [];
+      state.annotationHistory = [];
+      state.currentStroke = null;
       state.showSafeZone = true;   // shown until first point is placed
       resetZoom();
       /* Try automatic calibration first. If a known ArUco marker
@@ -2165,6 +2184,47 @@ function getDimAtPoint(imgPoint) {
 }
 
 /* ============================================================
+   TEXT STAMP HIT TEST
+   ============================================================
+   Returns the text annotation whose bounding box contains
+   imgPoint, or null. Used to detect drag targets when the
+   text tool is active.
+
+   The bounding box is estimated from the same font size logic
+   as redraw(), using a fixed characters-per-pixel approximation.
+   We use imagePerScreenPx() to keep the hit area consistent
+   regardless of zoom level, matching the visual size the user
+   sees on screen.
+   ============================================================ */
+function getTextAtPoint(imgPoint) {
+  const k = 1 / state.scale;
+  const baseFontPx = baseFontSize() * k;
+
+  for (let i = state.annotations.length - 1; i >= 0; i--) {
+    const ann = state.annotations[i];
+    if (ann.type !== 'text') continue;
+
+    const tFontSize = ann.size === 'small'  ? baseFontPx * 0.8
+                    : ann.size === 'large'  ? baseFontPx * 1.4
+                    : baseFontPx;
+
+    /* Approximate width: avg ~0.6× font size per character */
+    const approxW = ann.label.length * tFontSize * 0.6 + tFontSize * 0.8;
+    const approxH = tFontSize * 1.6;
+
+    if (
+      imgPoint.x >= ann.x - approxW / 2 &&
+      imgPoint.x <= ann.x + approxW / 2 &&
+      imgPoint.y >= ann.y - approxH / 2 &&
+      imgPoint.y <= ann.y + approxH / 2
+    ) {
+      return ann;
+    }
+  }
+  return null;
+}
+
+/* ============================================================
    DIMENSION DRAG — apply offset update
    ============================================================
    Called on every move event while a dimension is being dragged.
@@ -2297,6 +2357,16 @@ function onTouchStart(evt) {
       state.dragStartOffset = hit.dimOffset;
       state.dragStartImgPos = imgPos;
     }
+
+    /* Text tool: check if touch lands on an existing text stamp to drag it */
+    if (state.textActive) {
+      const textHit = getTextAtPoint(imgPos);
+      if (textHit) {
+        state.draggingText = textHit;
+        state.dragTextStartImgPos = imgPos;
+        state.dragTextOrigin = { x: textHit.x, y: textHit.y };
+      }
+    }
   }
 }
 function onTouchMove(evt) {
@@ -2327,6 +2397,14 @@ function onTouchMove(evt) {
     /* Dimension drag takes priority over pan */
     if (state.draggingDim) {
       applyDimDrag(imgPos);
+      return;
+    }
+
+    /* Text stamp drag */
+    if (state.draggingText) {
+      state.draggingText.x = state.dragTextOrigin.x + (imgPos.x - state.dragTextStartImgPos.x);
+      state.draggingText.y = state.dragTextOrigin.y + (imgPos.y - state.dragTextStartImgPos.y);
+      redraw();
       return;
     }
 
@@ -2373,6 +2451,25 @@ function onTouchEnd(evt) {
   state.isPanning = false;
   state.draggingDim = null;
   state.dragStartImgPos = null;
+  /* Text stamp: if the finger didn't move, it's an edit tap — open the modal. */
+  if (state.draggingText && state.dragTextStartImgPos) {
+    const t = evt.changedTouches[0];
+    const releaseImg = getImagePoint(t.clientX, t.clientY);
+    const moved = Math.hypot(
+      releaseImg.x - state.dragTextStartImgPos.x,
+      releaseImg.y - state.dragTextStartImgPos.y
+    );
+    if (moved < TAP_THRESHOLD_PX) {
+      openTextStampEditor(state.draggingText);
+      state.draggingText = null;
+      state.dragTextStartImgPos = null;
+      state.dragTextOrigin = null;
+      return;
+    }
+  }
+  state.draggingText = null;
+  state.dragTextStartImgPos = null;
+  state.dragTextOrigin = null;
 }
 function onMouseDown(evt) {
   evt.preventDefault();
@@ -2408,6 +2505,16 @@ function onMouseDown(evt) {
     state.dragStartOffset = hit.dimOffset;
     state.dragStartImgPos = imgPos;
   }
+
+  /* Text tool: check if pointer lands on an existing text stamp to drag it */
+  if (state.textActive) {
+    const textHit = getTextAtPoint(imgPos);
+    if (textHit) {
+      state.draggingText = textHit;
+      state.dragTextStartImgPos = imgPos;
+      state.dragTextOrigin = { x: textHit.x, y: textHit.y };
+    }
+  }
 }
 function onMouseMove(evt) {
   if (!state.mouseDown) return;
@@ -2430,13 +2537,14 @@ function onMouseMove(evt) {
   /* Block pan entirely when a drawing tool is active. */
   if (state.penActive || state.eraserActive) return;
 
-  /* Dimension drag takes priority over pan */
-  if (state.draggingDim) {
-    applyDimDrag(imgPos);
+  /* Text stamp drag */
+  if (state.draggingText) {
+    const imgPos = getImagePoint(evt.clientX, evt.clientY);
+    state.draggingText.x = state.dragTextOrigin.x + (imgPos.x - state.dragTextStartImgPos.x);
+    state.draggingText.y = state.dragTextOrigin.y + (imgPos.y - state.dragTextStartImgPos.y);
+    redraw();
     return;
   }
-
-  const dx = evt.clientX - state.touchStartPos.x;
   const dy = evt.clientY - state.touchStartPos.y;
   if (Math.hypot(dx, dy) > TAP_THRESHOLD_PX && state.scale > 1.01) {
     state.isPanning = true;
@@ -2467,6 +2575,24 @@ function onMouseUp(evt) {
     return;
   }
 
+  /* End text stamp drag. If the pointer barely moved, treat as edit tap. */
+  if (state.draggingText && state.dragTextStartImgPos) {
+    const releaseImg = getImagePoint(evt.clientX, evt.clientY);
+    const moved = Math.hypot(
+      releaseImg.x - state.dragTextStartImgPos.x,
+      releaseImg.y - state.dragTextStartImgPos.y
+    );
+    const ann = state.draggingText;
+    state.draggingText = null;
+    state.dragTextStartImgPos = null;
+    state.dragTextOrigin = null;
+    if (moved < TAP_THRESHOLD_PX) {
+      openTextStampEditor(ann);
+      return;
+    }
+    return;
+  }
+
   if (state.isPanning) { state.isPanning = false; return; }
   const dx = evt.clientX - state.touchStartPos.x;
   const dy = evt.clientY - state.touchStartPos.y;
@@ -2485,6 +2611,12 @@ function onWheel(evt) {
    TAP HANDLER
    ============================================================ */
 function handleTap(imgPoint) {
+  /* Text stamp: save the tap point and open the modal to type the label. */
+  if (state.textActive && state.phase === 'measure-idle') {
+    state.pendingTextPoint = imgPoint;
+    openTextStampEditor(null);
+    return;
+  }
   if (state.phase === 'calib-1') { state.calibPoints[0] = imgPoint; setPhase('calib-1-set'); }
   else if (state.phase === 'calib-1-set') { state.calibPoints[0] = imgPoint; redraw(); }
   else if (state.phase === 'calib-2') { state.calibPoints[1] = imgPoint; setPhase('calib-2-set'); }
@@ -2769,14 +2901,12 @@ panelList.addEventListener('click', (e) => {
       state.dimensions = state.dimensions.filter(x => x.id !== id);
       renderPanelList(); redraw(); updateHint();
     }
-
-else if (act === 'delete-text') {
+  }
+  else if (act === 'delete-text') {
     const tid = btn.dataset.id;
     pushAnnotationHistory();
     state.annotations = state.annotations.filter(a => a.id !== tid);
     renderPanelList(); redraw();
-  }
-
   }
   else if (act === 'rename') {
     state.renamingId = id;
@@ -3012,6 +3142,49 @@ renameInput.addEventListener('keydown', (e) => {
 });
 mmInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') document.getElementById('calib-ok').click();
+});
+
+/* Opens the text stamp modal in edit mode for an existing annotation,
+   or in create mode when ann is null (called from handleTap). */
+function openTextStampEditor(ann) {
+  state.editingTextAnn = ann;
+  const input = document.getElementById('text-stamp-input');
+  input.value = ann ? ann.label : '';
+  document.getElementById('modal-text-stamp').classList.add('show');
+  setTimeout(() => { input.focus(); input.select(); }, 100);
+}
+
+document.getElementById('text-stamp-ok').addEventListener('click', () => {
+  const label = document.getElementById('text-stamp-input').value.trim();
+  if (!label) { document.getElementById('text-stamp-input').focus(); return; }
+  pushAnnotationHistory();
+  if (state.editingTextAnn) {
+    /* Edit mode: update the existing annotation in place. */
+    state.editingTextAnn.label = label;
+    state.editingTextAnn = null;
+  } else {
+    /* Create mode: add a new annotation at the tapped point. */
+    state.annotations.push({
+      type: 'text',
+      id: String(Date.now() + Math.random()),
+      x: state.pendingTextPoint.x,
+      y: state.pendingTextPoint.y,
+      label,
+      color: state.penColor,
+      size: state.textSize
+    });
+    state.pendingTextPoint = null;
+  }
+  document.getElementById('modal-text-stamp').classList.remove('show');
+  redraw();
+});
+document.getElementById('text-stamp-cancel').addEventListener('click', () => {
+  state.pendingTextPoint = null;
+  state.editingTextAnn = null;
+  document.getElementById('modal-text-stamp').classList.remove('show');
+});
+document.getElementById('text-stamp-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') document.getElementById('text-stamp-ok').click();
 });
 
 /* ============================================================
