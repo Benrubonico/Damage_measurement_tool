@@ -515,6 +515,16 @@ verifying it against the actual file first.
   are wrong, show only those lines and their immediate context, and
   explain why the change is correct before presenting it.
 
+  - **When a feature is not working and the cause is not immediately
+  visible in the static code, do NOT deliver more code. Instead,
+  add temporary `console.log` statements at the key points of the
+  broken flow, deliver that diagnostic version, and ask the user
+  to open DevTools (F12 → Console), reproduce the problem, and
+  paste the console output. Only once the logs confirm exactly
+  where the flow breaks should new corrective code be written.**
+  This rule exists because phase 11 had multiple rounds of blind
+  fixes that introduced new bugs without diagnosing the real cause.
+
 ## Future ideas (not in roadmap)
 
 These are ideas captured to avoid losing them. They are **not

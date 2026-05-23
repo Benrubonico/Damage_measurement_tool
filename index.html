@@ -1832,6 +1832,7 @@ function redraw() {
     drawLine(state.pendingA, state.pendingB, '#e53935', stroke);
   }
 
+  /* annotations drawn below */
 
   /* ANNOTATIONS (phase 11)
      ----------------------------------------------------------
@@ -2212,6 +2213,31 @@ function applyDimDrag(imgPos) {
    screen pixels of imgPos. Operates on whole strokes — clicking
    near any point of a stroke removes the entire stroke.
    ============================================================ */
+/* ============================================================
+   ANNOTATION HISTORY — undo / clear
+   ============================================================
+   pushAnnotationHistory() snapshots the current annotations
+   array before any destructive action (new stroke, erase).
+   undoAnnotation() restores the previous snapshot.
+   clearAnnotations() wipes everything and saves a snapshot first.
+   ============================================================ */
+function pushAnnotationHistory() {
+  state.annotationHistory.push(JSON.parse(JSON.stringify(state.annotations)));
+}
+function undoAnnotation() {
+  if (state.annotationHistory.length === 0) return;
+  state.annotations = state.annotationHistory.pop();
+  state.currentStroke = null;
+  redraw();
+}
+function clearAnnotations() {
+  if (state.annotations.length === 0) return;
+  pushAnnotationHistory();
+  state.annotations = [];
+  state.currentStroke = null;
+  redraw();
+}
+
 function eraseAt(imgPos) {
   const eraseRadius = 15 * imagePerScreenPx() / state.scale;
   const before = state.annotations.length;
@@ -2357,7 +2383,8 @@ function onMouseDown(evt) {
 
   const imgPos = getImagePoint(evt.clientX, evt.clientY);
 
-  /* Pen: start a new stroke. */
+  /* Pen: start a new stroke. mouseDown stays true so onMouseMove
+     receives events; penActive + currentStroke guards the pen path. */
   if (state.penActive) {
     pushAnnotationHistory();
     state.currentStroke = {
@@ -2383,9 +2410,11 @@ function onMouseDown(evt) {
   }
 }
 function onMouseMove(evt) {
+  if (!state.mouseDown) return;
+
   const imgPos = getImagePoint(evt.clientX, evt.clientY);
 
-  /* Pen: add point to current stroke (works regardless of mouseDown). */
+  /* Pen: add point to current stroke — takes priority over everything. */
   if (state.penActive && state.currentStroke) {
     state.currentStroke.points.push(imgPos);
     redraw();
@@ -2393,21 +2422,19 @@ function onMouseMove(evt) {
   }
 
   /* Eraser: erase continuously while dragging. */
-  if (state.eraserActive && state.mouseDown) {
+  if (state.eraserActive) {
     eraseAt(imgPos);
     return;
   }
 
-  if (!state.mouseDown) return;
+  /* Block pan entirely when a drawing tool is active. */
+  if (state.penActive || state.eraserActive) return;
 
   /* Dimension drag takes priority over pan */
   if (state.draggingDim) {
     applyDimDrag(imgPos);
     return;
   }
-
-  /* Pan — only when no drawing tool is active */
-  if (state.penActive || state.eraserActive) return;
 
   const dx = evt.clientX - state.touchStartPos.x;
   const dy = evt.clientY - state.touchStartPos.y;
