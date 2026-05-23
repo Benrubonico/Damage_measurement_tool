@@ -145,7 +145,7 @@ reaches maturity. It is not a phase of this project.
     moved into panel, engineering-style moveable dimension lines
     (parallel to measurement, perpendicular extension lines,
     arrowheads, draggable offset). DIM_OFFSET_DEFAULT = -40.
-11. ⏸ Free annotations: freehand pen + text stamps on photo.
+11. ✅ Free annotations: freehand pen + text stamps on photo.
     Controls in Tools & Guide panel.
 12. ⏸ Measurement reliability heatmap: hold-to-show colour overlay.
 13. ⏸ Multi-marker support: detect and display all known markers,
