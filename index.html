@@ -788,6 +788,7 @@ details[open] > summary::after   { content: '▾'; }
     <input id="text-stamp-input" type="text" placeholder="e.g. Dent in to out" maxlength="40" />
     <div class="buttons">
       <button id="text-stamp-cancel" class="secondary">Cancel</button>
+      <button id="text-stamp-delete" class="danger" hidden>🗑 Delete</button>
       <button id="text-stamp-ok">Place</button>
     </div>
   </div>
@@ -1133,31 +1134,8 @@ const ARUCO_MARKER_SIZES_MM = {
    ============================================================ */
 const PERSPECTIVE_TILT_LIMIT = 1.10;
 
-/* ============================================================
-   SAFE ZONE
-   ============================================================
-   The fraction of the image width and height that defines the
-   "safe zone" rectangle drawn over the photo when it first
-   loads, to help the user confirm that both the marker and the
-   damage are well-centred before starting to measure.
-
-   0.70 means the safe zone covers the central 70% of each
-   dimension, leaving a 15% margin on every side. Objects
-   outside this rectangle are in the zone where lens distortion
-   grows noticeably (confirmed experimentally: error rises from
-   ~0.3% at centre to ~3% at the edges).
-
-   The rectangle is shown from the moment a photo is loaded
-   until the first dimension or calibration point is added,
-   then disappears permanently for that session.
-
-   HOW TO ADJUST:
-   - Increase towards 1.0 to make the safe zone larger (less
-     strict, accepts more of the image as "safe").
-   - Decrease towards 0.5 to make it smaller (stricter).
-   - Do not go below 0.5 or the rectangle becomes too small
-     to be useful as a framing guide.
-   ============================================================ */
+/* Central 70% of the image — low-distortion zone.
+   Used by the reliability heatmap (phase 12). */
 const SAFE_ZONE_RATIO = 0.70;
 
 /* ============================================================
@@ -1350,8 +1328,7 @@ const state = {
   /* Safe zone overlay: shown from photo load until the first
      calibration point or dimension is placed. Once dismissed
      it stays off for the rest of the session. */
-  showSafeZone: false,
-
+ 
   /* View-original mode: true only while the user holds the
      "Original" button. Causes redraw() to show the un-rectified
      photo without any overlays. Cleared on pointer-up/cancel. */
@@ -1774,40 +1751,9 @@ function redraw() {
   const stroke    = baseStroke() * k;
   const fontSize  = baseFontSize() * k;
 
-  /* SAFE ZONE OVERLAY
-     ----------------------------------------------------------
-     A dashed cyan rectangle delimiting the central SAFE_ZONE_RATIO
-     fraction of the image. Shown only while state.showSafeZone
-     is true (from photo load until the first measurement action).
-     Drawn BEFORE the calibration and dimension overlays so it
-     sits underneath them visually.
-
-     The rectangle is in image coordinates, so it follows zoom
-     and pan automatically via the current canvas transform.
-
-     Dash pattern is defined in image pixels scaled to be
-     screen-consistent (same physical dash size regardless of
-     zoom level). We use setLineDash rather than a CSS trick
-     because we are drawing into a canvas, not using DOM elements.
-     ---------------------------------------------------------- */
-  if (state.showSafeZone && !exportMode && !cleanMode) {
-    const margin = (1 - SAFE_ZONE_RATIO) / 2;   // 0.15 for 70%
-    const szX = canvas.width  * margin;
-    const szY = canvas.height * margin;
-    const szW = canvas.width  * SAFE_ZONE_RATIO;
-    const szH = canvas.height * SAFE_ZONE_RATIO;
-
-    /* Dash and gap size: 12 screen px each, scaled to image px. */
-    const dashPx = 12 * imagePerScreenPx() * k;
-
-    ctx.save();
-    ctx.strokeStyle = 'rgba(0, 229, 255, 0.85)';
-    ctx.lineWidth = 2.5 * imagePerScreenPx() * k;
-    ctx.setLineDash([dashPx, dashPx]);
-    ctx.strokeRect(szX, szY, szW, szH);
-    ctx.setLineDash([]);   // always reset to avoid affecting later draws
-    ctx.restore();
-  }
+  /* RELIABILITY HEATMAP — phase 12 (not yet implemented).
+     Will draw a green→yellow→red gradient overlay here,
+     shown only while the user holds the heatmap button. */
 
   /* In clean mode, skip all overlays — show photo only. */
   if (cleanMode) return;
@@ -2683,7 +2629,6 @@ fabViewOriginal.addEventListener('touchcancel', stopViewOriginal);
    ONBOARDING
    ============================================================ */
 document.getElementById('onboard-ok').addEventListener('click', () => {
-  state.showSafeZone = false;
   modalOnboard.classList.remove('show');
 });
 document.getElementById('scale-set-ok').addEventListener('click', () => {
@@ -3078,13 +3023,11 @@ function updateHint() {
    ADD DIMENSION + CONFIRMATIONS
    ============================================================ */
 btnAddDim.addEventListener('click', () => {
-  state.showSafeZone = false;
   state.pendingA = null; state.pendingB = null;
   setPhase('measure-1-empty');
 });
 
 btnConfirmPoint.addEventListener('click', () => {
-  state.showSafeZone = false;
   if (state.phase === 'calib-1-set') setPhase('calib-2');
   else if (state.phase === 'calib-2-set') openCalibModal(state.editingReference);
   else if (state.phase === 'measure-1') setPhase('measure-2-empty');
@@ -3150,12 +3093,33 @@ function openTextStampEditor(ann) {
   state.editingTextAnn = ann;
   const input = document.getElementById('text-stamp-input');
   input.value = ann ? ann.label : '';
+  /* Show the delete button only when editing an existing stamp. */
+  document.getElementById('text-stamp-delete').hidden = !ann;
   document.getElementById('modal-text-stamp').classList.add('show');
   setTimeout(() => { input.focus(); input.select(); }, 100);
 }
 
+function closeTextStampModal() {
+  state.pendingTextPoint = null;
+  state.editingTextAnn = null;
+  document.getElementById('modal-text-stamp').classList.remove('show');
+}
+
+function deleteEditingTextStamp() {
+  if (!state.editingTextAnn) return;
+  pushAnnotationHistory();
+  state.annotations = state.annotations.filter(a => a.id !== state.editingTextAnn.id);
+  closeTextStampModal();
+  redraw();
+}
+
 document.getElementById('text-stamp-ok').addEventListener('click', () => {
   const label = document.getElementById('text-stamp-input').value.trim();
+  if (state.editingTextAnn && !label) {
+    /* Empty text while editing = delete the stamp. */
+    deleteEditingTextStamp();
+    return;
+  }
   if (!label) { document.getElementById('text-stamp-input').focus(); return; }
   pushAnnotationHistory();
   if (state.editingTextAnn) {
@@ -3178,11 +3142,8 @@ document.getElementById('text-stamp-ok').addEventListener('click', () => {
   document.getElementById('modal-text-stamp').classList.remove('show');
   redraw();
 });
-document.getElementById('text-stamp-cancel').addEventListener('click', () => {
-  state.pendingTextPoint = null;
-  state.editingTextAnn = null;
-  document.getElementById('modal-text-stamp').classList.remove('show');
-});
+document.getElementById('text-stamp-delete').addEventListener('click', deleteEditingTextStamp);
+document.getElementById('text-stamp-cancel').addEventListener('click', closeTextStampModal);
 document.getElementById('text-stamp-input').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') document.getElementById('text-stamp-ok').click();
 });
