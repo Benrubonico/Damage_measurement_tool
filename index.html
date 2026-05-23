@@ -841,7 +841,7 @@ details[open] > summary::after   { content: '▾'; }
        colour picker, stroke width selector, text size selector,
        and undo / clear-all actions.
        ============================================================ -->
-  <div id="annotation-tools" style="display:none; border-bottom: 1px solid #333;">
+    <div id="annotation-tools" style="display:none; border-bottom: 1px solid #333;">
     <div class="how-to">
       <details id="ann-tools-details">
         <summary>✏ Annotation tools</summary>
@@ -973,6 +973,17 @@ details[open] > summary::after   { content: '▾'; }
     </details>
   </div>
 
+</div>
+
+<div id="panel-backdrop"></div>
+<div id="panel">
+  <header>
+    <h3>Dimensions</h3>
+    <button id="panel-close">✕</button>
+  </header>
+  <div id="panel-list">
+    <div id="panel-empty">No dimensions yet</div>
+  </div>
 </div>
 
 <script>
@@ -1387,6 +1398,12 @@ const panel         = document.getElementById('panel');
 const panelBackdrop = document.getElementById('panel-backdrop');
 const panelList     = document.getElementById('panel-list');
 const panelClose    = document.getElementById('panel-close');
+const leftPanel        = document.getElementById('left-panel');
+const leftPanelClose   = document.getElementById('left-panel-close');
+const btnListPanel     = document.getElementById('btn-list-panel');
+const btnCleanPanel    = document.getElementById('btn-clean-panel');
+const btnSavePanel     = document.getElementById('btn-save-panel');
+const btnSharePanel    = document.getElementById('btn-share-panel');
 
 
 /* ============================================================
@@ -2558,50 +2575,13 @@ function escapeHtml(s) {
   }[c]));
 }
 
-/* ============================================================
-   ANNOTATION HISTORY — push / undo / clear
-   ============================================================
-   Temporary stub: full implementation arrives in step 7.
-   Defined here so callers (delete-text) don't throw a
-   ReferenceError before step 7 is applied.
-   ============================================================ */
-function pushAnnotationHistory() {
-  state.annotationHistory.push(
-    JSON.parse(JSON.stringify(state.annotations))
-  );
-}
-
-function undoAnnotation() {
-  if (state.annotationHistory.length === 0) return;
-  state.annotations = state.annotationHistory.pop();
-  renderPanelList(); redraw();
-}
-
-function clearAnnotations() {
-  pushAnnotationHistory();
-  state.annotations = [];
-  renderPanelList(); redraw();
-}
-
 panelList.addEventListener('click', (e) => {
   const btn = e.target.closest('button[data-act]');
   if (!btn) return;
+  const id  = parseFloat(btn.dataset.id);
   const act = btn.dataset.act;
-
-  /* delete-text operates on annotations, not dimensions,
-     so it is handled before the dimension lookup below. */
-  if (act === 'delete-text') {
-    const tid = btn.dataset.id;
-    pushAnnotationHistory();
-    state.annotations = state.annotations.filter(a => a.id !== tid);
-    renderPanelList(); redraw();
-    return;
-  }
-
-  const id = parseFloat(btn.dataset.id);
-  const m  = state.dimensions.find(x => x.id === id);
+  const m   = state.dimensions.find(x => x.id === id);
   if (!m) return;
-
   if (act === 'toggle') {
     m.hidden = !m.hidden;
     renderPanelList(); redraw(); updateHint();
@@ -2611,6 +2591,14 @@ panelList.addEventListener('click', (e) => {
       state.dimensions = state.dimensions.filter(x => x.id !== id);
       renderPanelList(); redraw(); updateHint();
     }
+
+else if (act === 'delete-text') {
+    const tid = btn.dataset.id;
+    pushAnnotationHistory();
+    state.annotations = state.annotations.filter(a => a.id !== tid);
+    renderPanelList(); redraw();
+  }
+
   }
   else if (act === 'rename') {
     state.renamingId = id;
@@ -2851,12 +2839,6 @@ mmInput.addEventListener('keydown', (e) => {
 /* ============================================================
    LEFT PANEL — open / close + secondary action buttons
    ============================================================ */
-const leftPanel        = document.getElementById('left-panel');
-const leftPanelClose   = document.getElementById('left-panel-close');
-const btnListPanel     = document.getElementById('btn-list-panel');
-const btnCleanPanel    = document.getElementById('btn-clean-panel');
-const btnSavePanel     = document.getElementById('btn-save-panel');
-const btnSharePanel    = document.getElementById('btn-share-panel');
 
 function openLeftPanel() {
   leftPanel.classList.add('show');
