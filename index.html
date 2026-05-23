@@ -2165,9 +2165,33 @@ function applyDimDrag(imgPos) {
   redraw();
 }
 
+/* ============================================================
+   ERASER HIT TEST
+   ============================================================
+   Removes any stroke annotation that passes within ERASE_RADIUS
+   screen pixels of imgPos. Operates on whole strokes — clicking
+   near any point of a stroke removes the entire stroke.
+   ============================================================ */
+function eraseAt(imgPos) {
+  const eraseRadius = 15 * imagePerScreenPx() / state.scale;
+  const before = state.annotations.length;
+  state.annotations = state.annotations.filter(ann => {
+    if (ann.type !== 'stroke') return true; // never erase text here
+    return !ann.points.some(p =>
+      Math.hypot(p.x - imgPos.x, p.y - imgPos.y) < eraseRadius
+    );
+  });
+  if (state.annotations.length !== before) redraw();
+}
+
 function onTouchStart(evt) {
   evt.preventDefault();
   if (evt.touches.length === 2) {
+    /* Two fingers always means zoom — cancel any active stroke first. */
+    if (state.currentStroke) {
+      state.currentStroke = null;
+      redraw();
+    }
     state.isPinching = true; state.isPanning = false;
     const t1 = evt.touches[0], t2 = evt.touches[1];
     state.pinchStartDist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
@@ -2181,8 +2205,26 @@ function onTouchStart(evt) {
     state.touchStartPos = { x: t.clientX, y: t.clientY };
     state.panStart = { x: t.clientX, y: t.clientY, offsetX: state.offsetX, offsetY: state.offsetY };
 
-    /* Check if the touch lands on a dimension line */
     const imgPos = getImagePoint(t.clientX, t.clientY);
+
+    /* Pen: start a new stroke. */
+    if (state.penActive) {
+      pushAnnotationHistory();
+      state.currentStroke = {
+        type: 'stroke', id: Date.now() + Math.random(),
+        color: state.penColor, width: state.penWidth,
+        points: [imgPos]
+      };
+      return;
+    }
+
+    /* Eraser: remove strokes that pass near this point. */
+    if (state.eraserActive) {
+      eraseAt(imgPos);
+      return;
+    }
+
+    /* Check if the touch lands on a dimension line */
     const hit = getDimAtPoint(imgPos);
     if (hit) {
       state.draggingDim = hit;
@@ -2201,10 +2243,23 @@ function onTouchMove(evt) {
   }
   else if (evt.touches.length === 1 && !state.isPinching) {
     const t = evt.touches[0];
+    const imgPos = getImagePoint(t.clientX, t.clientY);
+
+    /* Pen: add point to current stroke. */
+    if (state.penActive && state.currentStroke) {
+      state.currentStroke.points.push(imgPos);
+      redraw();
+      return;
+    }
+
+    /* Eraser: erase continuously while dragging. */
+    if (state.eraserActive) {
+      eraseAt(imgPos);
+      return;
+    }
 
     /* Dimension drag takes priority over pan */
     if (state.draggingDim) {
-      const imgPos = getImagePoint(t.clientX, t.clientY);
       applyDimDrag(imgPos);
       return;
     }
@@ -2231,6 +2286,17 @@ function onTouchEnd(evt) {
     }
     return;
   }
+
+  /* Commit finished pen stroke. */
+  if (state.currentStroke) {
+    if (state.currentStroke.points.length > 1) {
+      state.annotations.push(state.currentStroke);
+    }
+    state.currentStroke = null;
+    redraw();
+    return;
+  }
+
   if (evt.touches.length === 0 && !state.isPanning && !state.isPinching) {
     const dt = Date.now() - state.touchStartTime;
     if (dt > TAP_MAX_MS) return;
@@ -2248,9 +2314,26 @@ function onMouseDown(evt) {
   state.touchStartPos = { x: evt.clientX, y: evt.clientY };
   state.panStart = { x: evt.clientX, y: evt.clientY, offsetX: state.offsetX, offsetY: state.offsetY };
 
-  /* Check if the pointer is on a dimension line — if so, start
-     dragging that dimension instead of panning or tapping. */
   const imgPos = getImagePoint(evt.clientX, evt.clientY);
+
+  /* Pen: start a new stroke. */
+  if (state.penActive) {
+    pushAnnotationHistory();
+    state.currentStroke = {
+      type: 'stroke', id: Date.now() + Math.random(),
+      color: state.penColor, width: state.penWidth,
+      points: [imgPos]
+    };
+    return;
+  }
+
+  /* Eraser: remove strokes near this point. */
+  if (state.eraserActive) {
+    eraseAt(imgPos);
+    return;
+  }
+
+  /* Check if the pointer is on a dimension line. */
   const hit = getDimAtPoint(imgPos);
   if (hit) {
     state.draggingDim = hit;
@@ -2261,9 +2344,23 @@ function onMouseDown(evt) {
 function onMouseMove(evt) {
   if (!state.mouseDown) return;
 
+  const imgPos = getImagePoint(evt.clientX, evt.clientY);
+
+  /* Pen: add point to current stroke. */
+  if (state.penActive && state.currentStroke) {
+    state.currentStroke.points.push(imgPos);
+    redraw();
+    return;
+  }
+
+  /* Eraser: erase continuously while dragging. */
+  if (state.eraserActive) {
+    eraseAt(imgPos);
+    return;
+  }
+
   /* Dimension drag takes priority over pan */
   if (state.draggingDim) {
-    const imgPos = getImagePoint(evt.clientX, evt.clientY);
     applyDimDrag(imgPos);
     return;
   }
@@ -2281,6 +2378,16 @@ function onMouseMove(evt) {
 function onMouseUp(evt) {
   if (!state.mouseDown) return;
   state.mouseDown = false;
+
+  /* Commit finished pen stroke. */
+  if (state.currentStroke) {
+    if (state.currentStroke.points.length > 1) {
+      state.annotations.push(state.currentStroke);
+    }
+    state.currentStroke = null;
+    redraw();
+    return;
+  }
 
   /* End dimension drag — do not fire a tap */
   if (state.draggingDim) {
@@ -2910,6 +3017,70 @@ btnSharePanel.addEventListener('click', () => {
    mobile user rotates), the canvas's screen size changes but its
    internal resolution doesn't. We redraw so cross sizes recalculate
    for the new screen-to-image ratio. */
+
+/* ============================================================
+   ANNOTATION TOOL CONTROLS (phase 11)
+   ============================================================
+   Wire up all the annotation panel controls to state:
+   tool toggles, colour picker, stroke width, text size,
+   undo and clear-all.
+   ============================================================ */
+
+/* Helper: activate one tool and deactivate the other two.
+   tool is 'pen' | 'eraser' | 'text' | null (deactivate all). */
+function setActiveTool(tool) {
+  state.penActive    = (tool === 'pen');
+  state.eraserActive = (tool === 'eraser');
+  state.textActive   = (tool === 'text');
+
+  document.getElementById('btn-tool-pen')
+    .classList.toggle('ann-active', state.penActive);
+  document.getElementById('btn-tool-eraser')
+    .classList.toggle('ann-active', state.eraserActive);
+  document.getElementById('btn-tool-text')
+    .classList.toggle('ann-active', state.textActive);
+}
+
+/* Tool toggles: clicking an active tool deactivates it (toggle off). */
+document.getElementById('btn-tool-pen').addEventListener('click', () => {
+  setActiveTool(state.penActive ? null : 'pen');
+});
+document.getElementById('btn-tool-eraser').addEventListener('click', () => {
+  setActiveTool(state.eraserActive ? null : 'eraser');
+});
+document.getElementById('btn-tool-text').addEventListener('click', () => {
+  setActiveTool(state.textActive ? null : 'text');
+});
+
+/* Colour picker */
+document.getElementById('ann-color-select').addEventListener('change', (e) => {
+  state.penColor = e.target.value;
+});
+
+/* Stroke width buttons */
+document.querySelectorAll('.ann-width').forEach(btn => {
+  btn.addEventListener('click', () => {
+    state.penWidth = parseInt(btn.dataset.width, 10);
+    document.querySelectorAll('.ann-width').forEach(b =>
+      b.classList.toggle('ann-width-sel', b === btn)
+    );
+  });
+});
+
+/* Text size buttons */
+document.querySelectorAll('.ann-tsize').forEach(btn => {
+  btn.addEventListener('click', () => {
+    state.textSize = btn.dataset.tsize;
+    document.querySelectorAll('.ann-tsize').forEach(b =>
+      b.classList.toggle('ann-tsize-sel', b === btn)
+    );
+  });
+});
+
+/* Undo and Clear all */
+document.getElementById('btn-ann-undo').addEventListener('click', undoAnnotation);
+document.getElementById('btn-ann-clear').addEventListener('click', clearAnnotations);
+
 window.addEventListener('resize', () => {
   if (state.photo) redraw();
 });
