@@ -42,12 +42,11 @@ Installable as a PWA (Progressive Web App) on any device.
   photo with no overlays at the current zoom/pan, for before/after
   comparison. Releases back to the rectified view on pointer-up or
   pointer-leave.
-- Safe zone overlay: a dashed cyan rectangle covering the central 70%
-  of the image (SAFE_ZONE_RATIO = 0.70), shown from the moment a photo
-  is loaded until the first calibration point or dimension is placed.
-  Guides the inspector to keep both the marker and the damage within
-  the low-distortion central region. Disappears permanently after first
-  use and does not appear on exported JPEGs.
+- Measurement reliability heatmap (◎ Accuracy lens map): hold-to-show
+  radial gradient overlay (green at centre → yellow at 70% boundary →
+  red at corners), based on the lens distortion error model. Never
+  appears on exported JPEGs. SAFE_ZONE_RATIO = 0.70 kept as constant
+  for the gradient calculation.
 - Perspective tolerance check: photos with side-length variance above
   PERSPECTIVE_TILT_LIMIT = 1.10 trigger a blocking modal with two
   choices: retake the photo, or continue under user responsibility
@@ -62,7 +61,9 @@ Installable as a PWA (Progressive Web App) on any device.
     - Automatic calibration: "ID X — Y.YYY mm/px" (yellow).
     - Manual calibration: "Y.YYY mm/px" (yellow).
     - Tilted photo accepted under user responsibility: red with ⚠.
-- Multiple named dimensions per photo: add, rename, hide, delete.
+- Multiple named dimensions per photo: add, rename, delete.
+  Tap briefly on a dimension line to open the edit modal (rename
+  or delete). Long press / drag moves the dimension line.
 - Pinch-zoom and pan for precise point placement.
 - Clean view (overlays hidden, photo only), save as JPEG with marks
   baked in, native share via Web Share API.
@@ -83,16 +84,6 @@ Installable as a PWA (Progressive Web App) on any device.
 
 Ongoing improvements to the Damage Measurement Tool, in planned order:
 
-- Phase 11 — Free annotations: freehand drawing and text labels
-  directly on the photo. Two tools: a freehand pen (variable colour
-  and stroke width) and a text stamp (tap to place, type the label).
-  Both are stored as overlay data (not baked into the photo until
-  export). Controls live inside the left-side Tools & Guide panel.
-  Annotations are cleared when a new photo is loaded.
-- Phase 12 — Measurement reliability heatmap: hold-to-show colour
-  gradient overlay (green at centre → yellow → red at edges) based
-  on known error model (marker position, safe zone, lens distortion).
-  Same interaction pattern as the existing "⊙ Original" button.
 - Phase 13 — Multi-marker support: detect and display all known
   markers present in the photo, use the largest as primary scale,
   store all corners in state as groundwork for future geometry.
@@ -710,7 +701,7 @@ does not imply priority.
    present in state (marker position, image dimensions,
    SAFE_ZONE_RATIO, mmPerPixel). Visually effective for presenting
    the tool and for training inspectors on correct framing.
-   Candidate for phase 14 or later once phases 10–13 are complete.
+   ✅ Completed in phase 12.
 8. **Live camera mode with continuous ArUco detection.** Real-time
    video stream where ArUco is detected on every frame and scale
    is recalibrated continuously. The inspector can frame and see
@@ -841,45 +832,32 @@ does not imply priority.
     is rare and valuable. Return materialises at 12–18 months.
     Cost: 1–2 hours/week.
 
-## How to start the next session (phase 11 — free annotations)
+## How to start the next session (phase 13 — multi-marker support)
 
 When opening a new chat:
 
 1. Confirm that the latest index.html and this PROJECT_CONTEXT.md
-   are present in project files (uploaded by the user after the
-   previous chat).
-2. The assistant should read this PROJECT_CONTEXT.md and index.html
-   first.
+   are present in project files.
+2. Read PROJECT_CONTEXT.md and index.html before doing anything else.
 3. When code inspection is needed, read specific fragments by line
    range — do NOT ask the user to paste fragments and do NOT rely
    on memory of earlier chat content.
-4. The assistant should not start writing code until the plan has
-   been approved in plain language.
+4. Do not start writing code until the plan has been approved in
+   plain language.
 5. Deliver changes as copy-pasteable fragments for VS Code, not as
-   whole-file replacements. Explain each fragment before presenting
-   it.
+   whole-file replacements. Explain each fragment before presenting it.
 
-Phase 11 covers free annotations directly on the photo:
+Phase 13 covers multi-marker support:
 
-  1. Freehand pen tool: the user draws strokes directly on the
-     photo. Configurable colour (at minimum red, yellow, white,
-     black) and stroke width (thin / medium / thick). Strokes are
-     stored as an array of paths in state, not baked into the photo
-     until export.
-  2. Text stamp tool: the user taps a point on the photo and types
-     a short label (e.g. "dent class 2", "revisar"). The label
-     appears at that point with the same background box style as
-     the dimension labels.
-  3. Undo: full history (multiple undo steps), not just one step.
-  4. Clear all annotations button.
-  5. All controls live inside the Tools & Guide left panel, not in
-     the main toolbar.
-  6. Annotations are cleared automatically when a new photo is
-     loaded.
-  7. On export (Save / Share), annotations are baked into the JPEG
-     together with the dimension overlays.
-  8. Text stamps are editable in-place with a tap/click directly on
-     the canvas, like editing text in PowerPoint.
+  Detect and display ALL known markers present in the photo (not just
+  the best one). Use the largest as the primary scale (current
+  behaviour preserved). Draw each detected marker as a quadrilateral
+  with its label, using a distinct colour per marker ID. Store all
+  detected corners in state as groundwork for future geometry phases.
+
+  Before proposing anything, read detectArucoMarker(), the CALIBRATION
+  OVERLAY block in redraw(), and applyAutoCalibration() from the
+  attached index.html.
 
 Before proposing anything, read the current left panel HTML
 structure and the panel-actions buttons block to understand what
