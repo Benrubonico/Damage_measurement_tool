@@ -7,6 +7,23 @@ cracks) from photographs, with millimetre-level accuracy, for internal
 professional use. The tool must run on both mobile and desktop from a
 single codebase.
 
+**Target domain:** The tool is designed for industrial inspection of
+flat or slightly curved surfaces — its primary intended application is
+aerospace (fuselage panels, wing skin, structural components). All
+pipeline design decisions, accuracy targets, and operational rules
+reflect that context.
+
+**Personal portfolio and learning track:** Real aerospace damage photos
+are confidential (property of Accenture and its clients). For all
+personal learning, dataset building, model training, and public
+portfolio work, vehicle bodywork damage is used as the equivalent
+domain. Car panels are geometrically analogous to aircraft skin panels:
+flat or slightly curved, rigid, with similar defect types (dents,
+scratches, deformation). The pipeline, marker workflow, accuracy
+targets, and operational rules are identical. The skill is directly
+transferable: if hired, the same tool applies to aerospace data with
+no changes to the core pipeline.
+
 ## Current state
 
 A working single-file HTML/CSS/JavaScript app: `index.html`.
@@ -95,8 +112,8 @@ Ongoing improvements to the Damage Measurement Tool, in planned order:
   image to propose measurement endpoints. Inspector confirms or adjusts.
 
 A separate second portfolio project (AI pipeline on public
-aeronautical data) will be planned independently when the tool
-reaches maturity. It is not a phase of this project.
+aeronautical data — NTSB/EASA reports) will be planned independently
+when the tool reaches maturity. It is not a phase of this project.
 
 ### Deferred to separate chats
 
@@ -178,9 +195,12 @@ reaches maturity. It is not a phase of this project.
 ## Versioning strategy
 
 - **Tag v1.0-core**: create this Git tag at the close of phase 13
-  (multi-marker support). At that point the measurement core is
-  complete and validated. Command: `git tag v1.0-core` + push.
-  This marks a permanent stable reference to return to at any time.
+  (multi-marker support). Exact steps at close of phase 13:
+  (1) commit the final index.html with all phase 13 changes to main,
+  (2) run `git tag v1.0-core` and `git push origin v1.0-core`,
+  (3) open feature branches before implementing any further phases.
+  This marks a permanent stable reference — the version shown to
+  managers and potential clients — recoverable at any time.
 
 - **JavaScript separation**: before starting phase 14 or 15 (when
   the file becomes hard to navigate), move all `<script>` content
@@ -188,13 +208,12 @@ reaches maturity. It is not a phase of this project.
   sw.js. No behaviour change, just maintainability.
 
 - **Future branches after v1.0-core**:
+    - `feature/stereometry` — phase 14, light 3D from two photos.
     - `feature/detection-no-ai` — Canny + contours assisted
       detection (phase 15), no external dependencies.
-    - `feature/detection-ai` — Claude API or Azure OpenAI
-      integration for damage classification. Requires a small
-      backend or Azure Function to proxy API calls (the API key
-      must never be exposed in client-side code). Cost: cents per
-      photo analysed at low inspector volume.
+    - `feature/detection-ai` — ONNX Runtime Web integration for
+      the custom-trained vehicle damage model (see Block 4 items
+      17–18). All inference runs client-side; no backend needed.
   Both branches fork from `main` after the tag, so the clean
   v1.0 core is always recoverable.
 
@@ -214,7 +233,10 @@ reaches maturity. It is not a phase of this project.
 - No npm, no build step, no transpiler.
 - Must run identically on iOS Safari, Android Chrome, and desktop
   Chrome / Firefox / Edge.
-- No backend. All processing client-side.
+- No backend. All processing client-side. This constraint is
+  fundamental and applies to all planned phases including AI model
+  inference (via ONNX Runtime Web) — the API key is never exposed
+  in client-side code.
 
 ## Repository structure
 
@@ -240,6 +262,10 @@ reaches maturity. It is not a phase of this project.
 - External dependencies (OpenCV.js, heic2any) are bundled within the
   repository and served locally. The application makes no external
   network requests after the initial page load.
+- This privacy-by-design architecture is what makes the tool suitable
+  for confidential industrial environments (aerospace, automotive
+  insurance, fleet management) without requiring IT approval for
+  cloud data processing.
 
 ## Measurement assumptions and physical limits
 
@@ -251,9 +277,12 @@ the assumptions underneath:
 ### What the system measures correctly
 - Lengths and contours of features lying on the same plane as the
   ArUco marker.
-- Damage on flat or slightly curved surfaces (fuselage panels, wing
-  skin) where the local curvature around the marker and the damage
-  is negligible (< 1° within the marker-to-damage radius).
+- Damage on flat or slightly curved surfaces where the local curvature
+  around the marker and the damage is negligible (< 1° within the
+  marker-to-damage radius). This covers aircraft fuselage panels,
+  wing skin, structural components — and equivalently, car body
+  panels, bonnets, doors, and bumpers, which share the same geometric
+  properties and are used as the personal/portfolio validation domain.
 
 ### What the system does NOT measure
 - Depth or relief of the damage. The pipeline is 2D over the surface
@@ -539,27 +568,38 @@ decision is taken. They are organised by ambition, from
 project owner has explicitly flagged as more interesting are
 marked with ★.
 
+**Domain note:** all items below are described in their aerospace
+context (the target application). For personal portfolio and
+learning purposes, the equivalent domain is vehicle bodywork — same
+pipeline, same techniques, publicly available data. Where items
+reference aircraft-specific workflows (SAP, tail number, zone
+coding), those are aerospace-only; the vehicle equivalent would be
+a damage report per vehicle registration number.
+
 ### Workflow and traceability
 
 - **★ Structured inspection session as a first-class entity.**
   Today each photo is independent. An "inspection" would become
-  a container: aircraft tail number, date, inspector, list of
-  documented damages, each with its photos and measurements. The
-  session ends by generating a signed PDF technical report. This
-  aligns naturally with the Microsoft 365 ecosystem already in use
-  at the organisation.
+  a container: tail number / vehicle registration, date, inspector,
+  list of documented damages, each with its photos and measurements.
+  The session ends by generating a signed PDF technical report.
+  Aerospace: aligns with the Microsoft 365 ecosystem in use at
+  the organisation. Vehicle equivalent: damage report at rental
+  car return or workshop intake.
 - **Damage type catalogue integrated with the existing classifier.**
   Each measured damage would be classified (Dent, Blend-out, Rivet
-  Pull-in, Out of Contour) using the logic of the separate
-  classification tool already developed. The two tools would
-  converge into a single deliverable: "measure + classify in one
-  flow", removing the need for inspectors to use two apps.
-- **Zone coding on the aircraft.** Before taking the photo, the
-  inspector tags "panel L-23, frame 14-15". The system stores it
-  and allows searching historical damages by zone.
-- **Integration with corporate maintenance systems** (e.g. SAP).
-  Saved damages push automatically into the existing ticketing or
-  maintenance-planning system, removing manual data re-entry.
+  Pull-in / equivalent deformation types) using the logic of the
+  separate classification tool already developed. The two tools
+  would converge into a single deliverable: "measure + classify in
+  one flow".
+- **Zone coding.** Before taking the photo, the inspector tags the
+  zone ("panel L-23, frame 14-15" for aircraft; "front left door"
+  for vehicles). The system stores it as metadata and allows
+  searching historical damages by zone.
+- **Integration with corporate maintenance systems** (e.g. SAP for
+  aerospace; fleet management software for automotive). Saved
+  damages push automatically into the existing ticketing or
+  planning system. Aerospace-only feature; requires IT access.
 
 ### Measurement core improvements
 
@@ -569,32 +609,30 @@ marked with ★.
   perspective-corrected image) could propose the measurement
   automatically. The inspector then confirms or adjusts. Works well
   for high-contrast defects (scratches, dents with shadow). No
-  training data required.
+  training data required. Applicable to both aerospace and vehicle
+  domains identically.
 - **Multi-marker support for curved surfaces.** Today a single
   marker rectifies a single plane. Placing one marker at each
-  corner of a curved fuselage panel would allow piecewise
-  reconstruction of the real geometry. Useful for large panels
-  where a single plane does not hold.
+  corner of a curved panel would allow piecewise reconstruction
+  of the real geometry. Useful for large panels where a single
+  plane does not hold. Applicable to both fuselage panels and
+  car bonnets or doors.
 - **Temporal comparison across inspections.** If the same zone is
-  inspected every X weeks, the app could align successive photos
+  inspected periodically, the app could align successive photos
   (the marker provides the alignment anchor) and highlight new
   defects or growth of existing ones.
 - **Light 3D via stereometry.** Two photos of the same damage from
   slightly different angles, both with markers, would allow
   estimating depth — the dimension the current pipeline does not
   measure. Would extend the tool from "surface extent" to
-  "dent volume".
-- **Per-device lens-distortion calibration.** If an inspector
-  always uses the same phone, a one-time calibration of that
-  phone's lens with a checkerboard pattern would remove the
-  residual radial distortion that survives perspective correction.
-  Would push best-case error below 0.5%.
+  "dent volume". Applicable to both domains identically.
+- **Per-device lens-distortion calibration.** A one-time
+  checkerboard calibration per phone model removes residual radial
+  distortion. Best-case error drops from 1–2% to 0.3–0.5%.
 - **Web Workers for OpenCV processing.** Today the main browser
-  thread briefly freezes while OpenCV processes a heavy photo. Moving
-  detection and rectification to a Web Worker would keep the UI
-  responsive during processing. Most relevant before phase 15
-  (Canny + contours will be heavier than ArUco detection alone).
-  No visible change for the user beyond smoother loading.
+  thread briefly freezes while OpenCV processes a heavy photo.
+  Moving detection and rectification to a Web Worker would keep
+  the UI responsive. Most relevant before phase 15.
 
 ### Capture and quality
 
@@ -602,44 +640,57 @@ marked with ★.
   camera, the app overlays guidance: "marker too far from centre",
   "you are too tilted, straighten up", "too dark, turn on the
   light". Reduces drastically the number of bad photos that reach
-  the measurement step. Requires moving part of the OpenCV
-  pipeline to the live video stream rather than only the final
-  still photo.
-- **Oblique-lighting documentation.** Not a software item, but
-  worth noting: a torch held at grazing angle reveals dents
-  invisible under frontal light. Worth standardising as part of
-  the inspection procedure.
+  the measurement step. Requires moving part of the OpenCV pipeline
+  to the live video stream.
+- **Oblique-lighting documentation.** Not a software item: a torch
+  held at grazing angle reveals dents invisible under frontal light.
+  Worth standardising as part of the inspection procedure for both
+  aerospace and vehicle contexts.
 
-### Speculative (only worth revisiting once the basic flow is mature)
+### Speculative
 
-- **Trained AI model on the organisation's own damage dataset.**
-  With hundreds or thousands of pre-classified real damages, a
-  custom model could classify automatically without human input.
-  Only realistic once a labelled dataset exists; not something
-  to start from scratch.
-- **Augmented reality for location.** Move the phone over the
-  aircraft and see historical damages of that zone overlaid.
-  Could leverage LiDAR on modern iPhones. Visually impressive but
-  the practical inspection ROI is debatable.
+- **Trained AI model on a labelled damage dataset.**
+  With hundreds of pre-classified real damages, a custom model
+  could classify automatically without human input. Only realistic
+  once a labelled dataset exists. For personal learning: built on
+  vehicle damage data (see Block 4). For corporate use: requires
+  Accenture to decide to build and label an internal aerospace
+  dataset.
+- **Augmented reality for location.** Pan the phone over the
+  surface and see historical damages overlaid. Visually impressive
+  but practical ROI is debatable. Could leverage LiDAR on modern
+  iPhones.
 - **Automatic generation of technical drawings.** Convert the
   measured dimensions into the stylised drawing format used in
-  official reports, with dimensions formatted per the
-  organisation's standard.
+  official reports. Aerospace-specific format; vehicle equivalent
+  would be a standardised damage diagram per insurance or fleet
+  management standards.
 
-### Suggested medium-term order (after phase 8)
+### Suggested order going forward (post phase 12)
 
-If pursued, a reasonable order of attack — focused on highest
-practical value before complexity:
+The immediate priority is completing the measurement core:
 
-1. Phase 9 (Azure + Entra ID) — once PWA is stable.
-2. Structured inspection session + PDF report — turns the tool
-   from "measurer" into "documentation system".
-3. Damage type catalogue integration — merges this app with the
-   existing classification tool. From two apps into one.
-4. Real-time capture assistant.
+1. Phase 13 — Multi-marker support (current focus). At close:
+   commit final index.html to main, create tag v1.0-core, then
+   open feature branches before continuing.
+2. Separate app.js from index.html before starting phase 14 or 15.
+3. Phase 14 — Stereometry (light 3D, two photos).
+4. Phase 15 — Assisted damage detection (Canny + contours, no AI).
 
-Visual or AI-flavoured items are deliberately deferred until the
-basic flow is polished and real users are asking for them.
+Personal portfolio and learning track (in parallel, not blocking):
+- Collect 200–500 photos of vehicle bodywork damage in public spaces
+  (parking lots, streets). No confidentiality constraints.
+- Label with Roboflow (free tier). Collect variety over quantity:
+  different lighting, distances, car colours, damage types.
+- Learn Python + opencv-python to experiment with the pipeline before
+  porting anything to JavaScript (see Block 4, item 15).
+- Train a YOLOv8 nano model on the vehicle dataset, export to ONNX,
+  integrate into the web app via ONNX Runtime Web (items 16–18).
+  No backend required: all inference runs in the browser.
+- Once the vehicle model is working, the pitch to any industrial
+  client (aerospace or otherwise) is: "same pipeline, same accuracy,
+  your data replaces the training set."
+
 **Solve the simple problem well before adding complexity.**
 
 ## Detailed catalogue (consolidated, May 2026)
@@ -651,6 +702,11 @@ catalogue is the consolidated index, the section above is the
 narrative discussion. Numbering is for cross-reference only and
 does not imply priority.
 
+**Domain note for this catalogue:** all items are described in their
+target (aerospace) context. Where personal/portfolio work is involved,
+the practical domain is vehicle bodywork damage as the non-confidential
+equivalent. This is noted explicitly only where the distinction matters.
+
 ### Block 1 — Core measurement improvements
 
 1. **Validate printed ArUco markers in the field.** ✅ Completed in
@@ -659,49 +715,38 @@ does not imply priority.
 2. **Multi-marker support for curved or large surfaces.** A single
    marker assumes a single plane. With two or more markers placed
    across the piece, the geometry can be reconstructed piecewise.
-   Useful for fuselage panels with curvature or large damage areas
-   where a single marker leaves too much margin. Mathematically
-   non-trivial (interpolation between planes), but feasible and
-   pedagogically rich.
+   Useful for fuselage panels or car bonnets with curvature or large
+   damage areas where a single marker leaves too much margin.
+   Mathematically non-trivial (interpolation between planes), but
+   feasible and pedagogically rich.
 3. **Assisted automatic damage detection.** Today the inspector
    manually places the two endpoints of each dimension. The app
    could propose them and the inspector only confirms. Three paths:
    (a) classical OpenCV (Canny edge detection, adaptive thresholding,
    contour analysis) for high-contrast defects, no AI, zero cost,
    local processing; (b) a custom-trained model (see Block 4);
-   (c) Azure AI Vision / Custom Vision for the corporate version,
+   (c) Azure AI Vision / Custom Vision for corporate environments,
    no data leaving Microsoft.
 4. **Temporal comparison across inspections.** If the same zone is
    inspected periodically, the app could align successive photos
    (using the ArUco marker as a stable anchor) and highlight new
-   defects or growth of existing ones. Valuable for scheduled
-   maintenance workflows.
+   defects or growth of existing ones. Valuable for both scheduled
+   aerospace maintenance and vehicle fleet management.
 5. **Per-device lens-distortion calibration.** Today perspective
    is corrected but residual radial distortion remains. A one-time
    chequerboard calibration with `cv.calibrateCamera` + `cv.undistort`
    per phone model removes it. ~15-minute setup per phone, reused
-   for every photo afterwards. Best-case error drops from 1-2 % to
-   0.3-0.5 %. Best effort/accuracy ratio of any pending measurement
-   improvement.
+   for every photo afterwards. Best-case error drops from 1–2% to
+   0.3–0.5%.
 6. **Stereometry: light 3D from two photos.** Two photos of the same
    damage from slightly different angles, both with visible markers,
    allow estimating depth by triangulation — the dimension the
    current pipeline does not measure. Turns the tool from "surface
    extent" into "dent volume". Software-only, no extra hardware.
-7. **Measurement reliability heatmap (replaces LiDAR depth item).**
-   A colour-gradient overlay (green at centre → yellow → red at
-   edges) visualising where measurements are most reliable based
-   on known error sources: distance from marker, safe zone boundary,
-   and lens distortion model documented in "Experimental findings".
-   Shown only while the user holds a dedicated button — same
-   interaction pattern as the existing "⊙ Original" button — so
-   it never clutters the working image. Released immediately on
-   pointer-up or pointer-leave. No external data or hardware
-   required: the overlay is computed from information already
-   present in state (marker position, image dimensions,
-   SAFE_ZONE_RATIO, mmPerPixel). Visually effective for presenting
-   the tool and for training inspectors on correct framing.
-   ✅ Completed in phase 12.
+7. **Measurement reliability heatmap.** ✅ Completed in phase 12.
+   Radial gradient overlay (green at centre → yellow → red at edges)
+   visualising where measurements are most reliable. Hold-to-show,
+   same pattern as ⊙ Original. Never appears on exported JPEGs.
 8. **Live camera mode with continuous ArUco detection.** Real-time
    video stream where ArUco is detected on every frame and scale
    is recalibrated continuously. The inspector can frame and see
@@ -713,45 +758,48 @@ does not imply priority.
 
 9. **Structured inspection session as first-class entity.** Today
    each photo is independent. An "inspection" would become a
-   container: aircraft tail number, date, inspector, list of
-   documented damages, each with its photos and measurements.
-   Session ends generating a signed technical PDF report.
-   Natural fit with the corporate Microsoft 365 ecosystem.
-   Converts the tool from "measurer" into "inspection documentation
-   system".
-10. **Aircraft zone coding.** Before each photo, the inspector tags
-    the zone ("panel L-23, frame 14-15"). The system stores it as
-    metadata and allows searching historical damages by zone. Small
-    addition, large value for accumulated information.
-11. **Integration with SAP or corporate maintenance system.** When
-    the app saves a damage measurement, the data is automatically
-    pushed to the corporate ticketing or maintenance-planning system.
-    Requires IT conversations and internal API access. Converts the
-    tool from "inspector aid" into "official process component".
+   container: identifier (tail number for aerospace / registration
+   for vehicles), date, inspector, list of documented damages, each
+   with its photos and measurements. Session ends generating a
+   signed technical PDF report.
+10. **Zone coding.** Before each photo, the inspector tags the zone
+    ("panel L-23, frame 14-15" for aircraft; "front left door, lower
+    edge" for vehicles). The system stores it as metadata and allows
+    searching historical damages by zone.
+11. **Integration with corporate maintenance / fleet system.**
+    Aerospace: SAP or equivalent, requires IT access and API
+    agreements. Vehicle fleet: fleet management software (not
+    planned for personal portfolio; noted for completeness).
 12. **Damage type catalogue + convergence with existing classifier.**
-    Each damage classified (Dent, Blend-out, Rivet Pull-in, Out of
-    Contour) using the logic of the existing classification tool.
+    Each damage classified (aerospace: Dent, Blend-out, Rivet
+    Pull-in, Out of Contour; vehicles: equivalent deformation
+    categories) using the logic of the existing classification tool.
     With automatic measurement + classification combined, the full
-    information piece the official system needs is captured in one
-    flow. The two tools would converge into one — potentially
-    multiplying the value of each in isolation.
+    information piece needed by the official system is captured in
+    one flow.
 
 ### Block 3 — Capture and image quality
 
-13. **Real-time capture assistant.** When the inspector opens the
-    camera, the app gives live feedback: "marker outside safe zone",
-    "you are tilted, straighten up", "too dark, turn on the light".
-    Requires moving part of the OpenCV pipeline to the live video
-    stream (related to item 8). Probably the highest practical-impact
-    UX improvement for real users. Drastically reduces the number of
-    unusable photos reaching the measurement step.
-14. **Oblique lighting to reveal relief.** Not a software item, but
-    worth documenting: a lateral torch at grazing angle makes dents
-    invisible under frontal light appear as clear shadows. Combined
-    with the existing perspective correction, a powerful combo.
-    Belongs in the operational rules / inspector guidelines.
+13. **Real-time capture assistant.** Live feedback on the camera
+    view: "marker outside safe zone", "you are tilted, straighten
+    up", "too dark, turn on the light". Requires moving part of the
+    OpenCV pipeline to the live video stream (related to item 8).
+    Applicable to both domains identically.
+14. **Oblique lighting to reveal relief.** Not a software item: a
+    lateral torch at grazing angle makes dents invisible under
+    frontal light appear as clear shadows. Belongs in the operational
+    rules for both aerospace and vehicle inspection.
 
 ### Block 4 — Applied AI and custom-trained model
+
+**Domain note for Block 4:** training on real aerospace damage photos
+is not possible for personal work (confidentiality constraint). All
+personal model training uses vehicle bodywork damage as the equivalent
+domain. The technical pipeline (dataset → labelling → YOLOv8 →
+ONNX → browser) is identical regardless of domain; only the photos
+and class labels differ. No backend is required at any step: training
+runs locally or on Google Colab (free GPU), and inference runs
+entirely in the browser via ONNX Runtime Web.
 
 15. **Learn Python oriented to computer vision.** Not "Python in
     abstract" but with specific focus:
@@ -761,52 +809,56 @@ does not imply priority.
     - Jupyter notebooks for visual step-by-step experimentation.
     Realistic timeline: 4–6 weeks for fluency at 4–5 hours/week.
     Foundation for everything else in this block.
-16. **Build a custom damage dataset.** Foundation for any training.
-    No public aerospace-damage dataset is usable. Steps: collect
-    200–500 real damage photos (variety > quantity), label them
-    with `LabelImg` or `Roboflow` (both free). **Confidentiality
-    constraint:** real aircraft damage photos are property of
-    Accenture and its clients; they CANNOT be used for personal
-    training. Equivalent damage in non-corporate contexts (car
-    bodywork, appliances, anything visually and geometrically
-    analogous) must be used instead. The technical skill is fully
-    transferable when Accenture decides to train its own model with
-    corporate data.
-17. **Train a small model with YOLOv8 or similar.** With dataset
-    prepared, train an object-detection model. `Ultralytics YOLOv8`
-    is the most accessible — a few lines of Python. Train on local
-    GPU if available, or free Google Colab GPU. Trained model size:
-    5–50 MB. Export to **ONNX** format because **ONNX Runtime Web**
-    runs ONNX models directly in the browser via JavaScript — the
-    custom model can therefore be integrated into the existing web
-    app without a server, without sending photos anywhere. Fully
-    local processing, faithful to the project's data-handling stance.
-18. **Integrate the trained model into the web app.** Port the
-    working Python model to the browser via ONNX Runtime Web. Closes
-    the learning loop: Python, applied AI, custom training, and
-    application back to the existing project. Probably the richest
-    single technical achievement possible from this learning track.
-19. **Corporate AI model for automatic classification.** Ambitious
-    extension of items 17–18: if Accenture accumulates hundreds or
-    thousands of pre-classified real damages, a custom model could
-    classify automatically ("this is a Dent of class 2") without
-    human input. Only viable when a sizeable labelled dataset
-    exists. Depends on corporate decisions, not personal ones.
+16. **Build a custom vehicle damage dataset.** Collect 200–500 photos
+    of real vehicle bodywork damage in public spaces (parking lots,
+    streets, workshops). Variety over quantity: different lighting,
+    distances, car colours, damage types (dents, scratches,
+    deformations). Label with Roboflow (free tier). No
+    confidentiality constraints — this data is personal.
+    **Why vehicles:** aerospace damage photos are property of
+    Accenture and its clients and cannot be used for personal
+    training. Vehicle panels are geometrically equivalent (flat or
+    slightly curved rigid panels with similar defect types). The
+    trained model and all techniques transfer directly to aerospace
+    data if an employer provides it.
+17. **Train a small model with YOLOv8 or similar.** With the vehicle
+    dataset prepared, train an object-detection model. Ultralytics
+    YOLOv8 nano or small is the most accessible — a few lines of
+    Python. Train on local GPU if available, or free Google Colab
+    GPU. Trained model size: 5–20 MB. Export to **ONNX** format.
+    **No backend required at this step** — training is a one-time
+    offline process.
+18. **Integrate the trained model into the web app via ONNX Runtime
+    Web.** ONNX Runtime Web runs ONNX models directly in the browser
+    via JavaScript, with no server and no data leaving the device.
+    The model is bundled in `lib/` like OpenCV.js. **No backend
+    required** — all inference is client-side, consistent with the
+    project's privacy-by-design architecture. This closes the full
+    learning loop: Python → training → ONNX → browser integration.
+    Probably the richest single technical achievement possible from
+    this learning track.
+19. **Aerospace AI model for automatic classification (corporate
+    decision).** Ambitious extension of items 16–18 applied to
+    the real aerospace domain: if Accenture builds a labelled dataset
+    of real aircraft damages, a custom model could classify
+    automatically. This depends entirely on corporate decisions
+    (data ownership, IT approval, project budget) — it is not
+    something that can be done personally. The vehicle-domain work
+    in items 16–18 is the proof of concept that makes this
+    conversation possible.
 
 ### Block 5 — Augmented reality and technical drawings
 
 20. **Augmented reality for historical damage location.** Pan the
-    phone over the aircraft and see historical damages of the zone
-    overlaid. Works best with LiDAR-equipped iPhones. Visually
-    impressive but the practical inspection ROI is debatable: the
-    inspector likely already knows where the damages are or has
-    faster ways to look them up.
+    phone over the surface and see historical damages overlaid.
+    Works best with LiDAR-equipped iPhones. Visually impressive but
+    practical ROI is debatable. Aerospace-specific in concept;
+    technically feasible for vehicles too.
 21. **Automatic technical drawing generation.** From the captured
     dimensions, generate the stylised technical drawing used in
-    official reports, with dimensions formatted per Accenture's
-    or the client's standard. Converts the tool from "documenter"
-    into "formal deliverable producer". Very valuable when the
-    organisation has official templates to match.
+    official reports. Aerospace: formatted per Accenture/Airbus
+    standard. Vehicle: formatted per insurance or fleet management
+    standard. Very valuable when official templates must be matched.
 
 ### Block 6 — Certifications and career
 
@@ -827,9 +879,11 @@ does not imply priority.
     Listed here only for completeness of the catalogue.
 25. **Public learning artefacts.** Document the construction process
     publicly (LinkedIn or a technical blog) as a career identity
-    asset. For this specific profile (self-taught, 38, applied AI
-    + computer vision + corporate environments), the combination
-    is rare and valuable. Return materialises at 12–18 months.
+    asset. For this specific profile (self-taught, applied AI +
+    computer vision + industrial domain knowledge), the combination
+    is rare and valuable. Framing: "validated on vehicles because
+    aerospace data is confidential — same pipeline, transferable
+    on day one." Return materialises at 12–18 months.
     Cost: 1–2 hours/week.
 
 ## How to start the next session (phase 13 — multi-marker support)
