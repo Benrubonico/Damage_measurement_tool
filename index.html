@@ -1253,6 +1253,11 @@ const state = {
   calibMarkerId: null,   // ID of the auto-detected marker, null if manual
   calibMarkerCorners: null, // 4 corners of the detected marker in image
                             // coords (auto calib only); null when manual
+  allDetectedMarkers: [],   // all known markers found in the photo (phase 13);
+                            // each entry is the full marker object from
+                            // detectArucoMarker(). The primary calibration
+                            // marker is always the one with the largest
+                            // avgSidePx; the rest are secondary.
   dimensions: [],
   pendingA: null,
   pendingB: null,
@@ -1418,6 +1423,7 @@ function loadPhotoFromBlob(blob) {
       state.calibTilted = false;
       state.calibMarkerId = null;
       state.calibMarkerCorners = null;
+      state.allDetectedMarkers = [];
       state.pendingA = null;
       state.pendingB = null;
       state.dimCounter = 0;
@@ -1461,6 +1467,11 @@ function tryAutoCalibration() {
   if (result.errorMessage) {
     console.warn('Auto calibration error:', result.errorMessage);
   }
+
+  /* Store all detected markers for the secondary overlay (phase 13).
+     Cleared here so a photo with zero markers never shows stale data
+     from a previous load. */
+  state.allDetectedMarkers = result.markers || [];
 
   if (result.best) {
     const m = result.best;
@@ -1539,6 +1550,26 @@ function applyAutoCalibration(marker, tilted) {
     ];
     state.calibMarkerCorners = rectified.markerCornersRectified;
     state.mmPerPixel         = rectified.mmPerPixelRectified;
+
+    /* Transform secondary marker corners into rectified space (phase 13).
+       applyHomography() multiplies a 2D point by the 3×3 perspective
+       matrix using homogeneous coordinates — the same operation
+       cv.perspectiveTransform does, but in plain JS so we don't need
+       to keep a cv.Mat alive outside rectifyImageWithMarker(). */
+    if (rectified.homography && state.allDetectedMarkers.length > 1) {
+      const h = rectified.homography;
+      function applyHomography(p) {
+        const w = h[6] * p.x + h[7] * p.y + h[8];
+        return {
+          x: (h[0] * p.x + h[1] * p.y + h[2]) / w,
+          y: (h[3] * p.x + h[4] * p.y + h[5]) / w
+        };
+      }
+      state.allDetectedMarkers = state.allDetectedMarkers.map(m => {
+        if (m.id === marker.id) return m;   // primary: already handled above
+        return { ...m, corners: m.corners.map(applyHomography) };
+      });
+    }
   } else {
     /* Fallback path: same behaviour as before phase 6 step 2. */
     state.originalPhoto      = null;
@@ -1696,7 +1727,32 @@ function redraw() {
   /* In clean mode, skip all overlays — show photo only. */
   if (cleanMode) return;
 
-  /* CALIBRATION OVERLAY (Edición H) */
+  /* CALIBRATION OVERLAY (Edición H + phase 13) */
+
+  /* Secondary markers: draw first so the primary marker is always
+     rendered on top. Each ID gets a distinct colour so the user
+     can tell them apart at a glance. The primary marker (the one
+     used for calibration) is excluded from this loop to avoid
+     drawing it twice. */
+  const SECONDARY_MARKER_COLORS = {
+    0: '#ff9800',   // orange  — ID 0 (small,  ~15 mm)
+    1: '#00bcd4',   // cyan    — ID 1 (medium, ~50 mm)
+    2: '#66bb6a',   // green   — ID 2 (large, ~100 mm)
+  };
+
+  if (state.allDetectedMarkers.length > 1) {
+    state.allDetectedMarkers.forEach(m => {
+      if (m.id === state.calibMarkerId) return;   // skip primary
+      const color = SECONDARY_MARKER_COLORS[m.id] || '#aaaaaa';
+      drawPolygon(m.corners, color, stroke);
+      const cx = (m.corners[0].x + m.corners[1].x + m.corners[2].x + m.corners[3].x) / 4;
+      const cy = (m.corners[0].y + m.corners[1].y + m.corners[2].y + m.corners[3].y) / 4;
+      drawLabelAtPoint({ x: cx, y: cy },
+        `Marker ID ${m.id} — ${m.sizeMm} mm`,
+        color, fontSize, k);
+    });
+  }
+
   if (state.calibMarkerCorners) {
     /* Auto-detected marker: closed quadrilateral, no corner
        crosses (the rectangle is enough). Tilted calibrations use
@@ -2771,6 +2827,7 @@ document.getElementById('new-confirm').addEventListener('click', () => {
   state.calibTilted = false;
   state.calibMarkerId = null;
   state.calibMarkerCorners = null;
+  state.allDetectedMarkers = [];
   state.pendingA = null;
   state.pendingB = null;
   state.dimCounter = 0;
@@ -3590,10 +3647,17 @@ function rectifyImageWithMarker(img, markerCorners, markerSizeMm) {
     outCanvas.height = img.naturalHeight;
     cv.imshow(outCanvas, dst);
 
+    /* Extract the 9 homography coefficients before M is deleted
+       in finally{}. The caller uses them to transform secondary
+       marker corners into rectified space (phase 13) without
+       needing to keep a cv.Mat alive outside this function. */
+    const homography = Array.from(M.data64F);   // 9 floats, row-major
+
     return {
       image: outCanvas,
       markerCornersRectified: ideal,
-      mmPerPixelRectified: markerSizeMm / avgSidePx
+      mmPerPixelRectified: markerSizeMm / avgSidePx,
+      homography
     };
   } finally {
     srcPts.delete();
