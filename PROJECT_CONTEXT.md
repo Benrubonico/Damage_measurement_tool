@@ -194,28 +194,56 @@ when the tool reaches maturity. It is not a phase of this project.
 
 ## Versioning strategy
 
-- **Tag v1.0-core**: create this Git tag at the close of phase 13
-  (multi-marker support). Exact steps at close of phase 13:
-  (1) commit the final index.html with all phase 13 changes to main,
-  (2) run `git tag v1.0-core` and `git push origin v1.0-core`,
-  (3) open feature branches before implementing any further phases.
-  This marks a permanent stable reference — the version shown to
-  managers and potential clients — recoverable at any time.
+### Closing phase 13 — mandatory steps before continuing
 
-- **JavaScript separation**: before starting phase 14 or 15 (when
-  the file becomes hard to navigate), move all `<script>` content
-  to a separate `app.js` file. Add `app.js` to `PRE_CACHE_URLS` in
-  sw.js. No behaviour change, just maintainability.
+When phase 13 (multi-marker support) is complete, execute these
+steps in order before touching anything else. They guarantee that
+a clean recovery point always exists.
 
-- **Future branches after v1.0-core**:
-    - `feature/stereometry` — phase 14, light 3D from two photos.
-    - `feature/detection-no-ai` — Canny + contours assisted
-      detection (phase 15), no external dependencies.
-    - `feature/detection-ai` — ONNX Runtime Web integration for
-      the custom-trained vehicle damage model (see Block 4 items
-      17–18). All inference runs client-side; no backend needed.
-  Both branches fork from `main` after the tag, so the clean
-  v1.0 core is always recoverable.
+**Step 1 — Final commit on main**
+Make sure index.html with all phase 13 changes is saved and pushed.
+In VS Code: Source Control → Stage All → Commit → Push.
+Suggested commit message: `phase 13 complete: multi-marker support`.
+
+**Step 2 — Create tag v1.0-core**
+In the VS Code terminal (Ctrl+ñ on Windows), copy and paste this
+in one go:
+
+git tag v1.0-core && git push origin v1.0-core
+
+This tag is permanent. It marks the stable version of the
+measurement core. It can be recovered at any time with
+`git checkout v1.0-core`. This is the version shown to managers
+and potential clients.
+
+**Step 3 — Extract JavaScript to app.js**
+Before opening any branch for phase 14 or 15, move all content
+inside the <script>...</script> block in index.html to a new file
+called app.js in the repository root.
+In index.html, replace the <script> block with:
+<script src="app.js"></script>
+Add './app.js' to the PRE_CACHE_URLS list in sw.js so the service
+worker caches it. No behaviour change — maintainability only.
+Suggested commit message: `refactor: extract app.js`.
+
+**Step 4 — Open the branch for the next phase**
+Only after the tag and app.js extraction, copy and paste this
+in one go:
+
+git checkout -b feature/phase-14-stereometry && git push origin feature/phase-14-stereometry
+
+### Planned branches after v1.0-core
+
+- feature/phase-14-stereometry — phase 14, light 3D depth
+  estimation from two photos with marker.
+- feature/phase-15-detection-no-ai — phase 15, assisted damage
+  detection with Canny + contours, no AI, no external dependencies.
+- feature/phase-16-detection-ai — ONNX Runtime Web integration
+  for the model trained on vehicle bodywork data (see Block 4,
+  items 17–18). All inference runs client-side, no backend needed.
+
+All branches fork from main after the v1.0-core tag, so the clean
+core is always recoverable.
 
 ## Tech stack and constraints
 
@@ -912,8 +940,3 @@ Phase 13 covers multi-marker support:
   Before proposing anything, read detectArucoMarker(), the CALIBRATION
   OVERLAY block in redraw(), and applyAutoCalibration() from the
   attached index.html.
-
-Before proposing anything, read the current left panel HTML
-structure and the panel-actions buttons block to understand what
-exists today. Read also the exportImage() function to understand
-how overlays are currently baked into the exported JPEG.
