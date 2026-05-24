@@ -378,7 +378,9 @@ const state = {
   currentStroke: null,     // the stroke object being drawn right now (between touchstart and touchend)
 
   /* ---- Rectangle selection (phase 15 auto-detect) ---- */
-  rectStart: null          // image-space {x,y} where the auto-detect drag started; null when inactive
+  rectStart: null,         // image-space {x,y} where the auto-detect drag started; null when inactive
+  rectEnd: null,           // image-space {x,y} of the opposite corner while dragging; null when inactive
+  pendingRectProposal: null // result of suggestDamageEndpointsInRect(), held while modal is open
 };
 
 const welcome = document.getElementById('welcome');
@@ -874,17 +876,17 @@ function redraw() {
   /* Auto-detect rectangle: drawn in green while the inspector is dragging.
      rectStart is the corner where the drag began; pendingB tracks the
      current drag position (the opposite corner). Never drawn on export. */
-  if (state.phase === 'detect-tap' && state.rectStart && state.pendingB && !exportMode) {
+  if (state.phase === 'detect-tap' && state.rectStart && state.rectEnd && !exportMode) {
     const rx = state.rectStart.x;
     const ry = state.rectStart.y;
-    const rw = state.pendingB.x - rx;
-    const rh = state.pendingB.y - ry;
+    const rw = state.rectEnd.x - rx;
+    const rh = state.rectEnd.y - ry;
     ctx.save();
-    ctx.strokeStyle = '#27ae60';
+    ctx.strokeStyle = '#2a6fdb';
     ctx.lineWidth   = stroke * 1.5;
     ctx.setLineDash([8 * k, 4 * k]);
     ctx.strokeRect(rx, ry, rw, rh);
-    ctx.fillStyle = 'rgba(39, 174, 96, 0.08)';
+    ctx.fillStyle = 'rgba(42, 111, 219, 0.10)';
     ctx.fillRect(rx, ry, rw, rh);
     ctx.setLineDash([]);
     ctx.restore();
@@ -1377,7 +1379,7 @@ function onTouchStart(evt) {
     /* Auto-detect: start rectangle drag or prepare for tap. */
     if (state.phase === 'detect-tap') {
       state.rectStart = imgPos;
-      state.pendingB  = imgPos;
+      state.rectEnd   = imgPos;
       return;
     }
 
@@ -1431,7 +1433,7 @@ function onTouchMove(evt) {
 
     /* Auto-detect rectangle: update the dragged corner. */
     if (state.phase === 'detect-tap' && state.rectStart) {
-      state.pendingB = imgPos;
+      state.rectEnd = imgPos;
       redraw();
       return;
     }
@@ -1501,7 +1503,7 @@ function onTouchEnd(evt) {
     } else {
       const tapPoint = state.rectStart;
       state.rectStart = null;
-      state.pendingB  = null;
+      state.rectEnd   = null;
       runAutoDetect(tapPoint);
     }
     return;
@@ -1575,7 +1577,7 @@ function onMouseDown(evt) {
   /* Auto-detect rectangle: start dragging. */
   if (state.phase === 'detect-tap') {
     state.rectStart = imgPos;
-    state.pendingB  = imgPos;
+    state.rectEnd   = imgPos;
     return;
   }
 
@@ -1622,7 +1624,7 @@ function onMouseMove(evt) {
 
   /* Auto-detect rectangle: update the dragged corner. */
   if (state.phase === 'detect-tap' && state.rectStart) {
-    state.pendingB = imgPos;
+    state.rectEnd = imgPos;
     redraw();
     return;
   }
@@ -1684,7 +1686,7 @@ function onMouseUp(evt) {
     } else {
       const tapPoint = state.rectStart;
       state.rectStart = null;
-      state.pendingB  = null;
+      state.rectEnd   = null;
       runAutoDetect(tapPoint);
     }
     return;
@@ -2255,9 +2257,9 @@ function updateHint() {
    ============================================================ */
 function commitRectDimensions() {
   const a = state.rectStart;
-  const b = state.pendingB;
+  const b = state.rectEnd;
   state.rectStart = null;
-  state.pendingB  = null;
+  state.rectEnd   = null;
 
   if (!a || !b) { setPhase('measure-idle'); return; }
 
@@ -2265,35 +2267,166 @@ function commitRectDimensions() {
   const y1 = Math.min(a.y, b.y);
   const x2 = Math.max(a.x, b.x);
   const y2 = Math.max(a.y, b.y);
-  const w  = x2 - x1;
-  const h  = y2 - y1;
 
-  if (w < 1 || h < 1) { setPhase('measure-idle'); return; }
+  if ((x2 - x1) < 1 || (y2 - y1) < 1) { setPhase('measure-idle'); return; }
+
+  const proposal = suggestDamageEndpointsInRect(x1, y1, x2, y2);
+
+  if (proposal) {
+    /* Store proposal for the modal handlers and open the modal.
+       We stay in detect-tap phase until the user picks an option. */
+    state.pendingRectProposal = proposal;
+    document.getElementById('modal-rect-measure').classList.add('show');
+    return;
+  }
+
+  /* Fallback: Canny found nothing — use rectangle dimensions directly. */
+  console.log('Rect auto-detect found nothing — using rectangle dimensions.');
+  addRectFallbackDimensions(x1, y1, x2, y2);
+}
+
+/* Creates W and H dimensions from a raw rectangle.
+   Used as fallback when Canny finds nothing inside the rect. */
+function addRectFallbackDimensions(x1, y1, x2, y2) {
+  const w = x2 - x1;
+  const h = y2 - y1;
 
   state.dimCounter++;
   state.dimensions.push({
     id: Date.now() + Math.random(),
     name: `W${state.dimCounter}`,
-    a: { x: x1, y: y2 },   // bottom-left corner
-    b: { x: x2, y: y2 },   // bottom-right corner
+    a: { x: x1, y: y2 },
+    b: { x: x2, y: y2 },
     mm: w * state.mmPerPixel,
     hidden: false,
-    dimOffset: -Math.round(h * 0.18 + 40)  // offset above the bottom edge
+    dimOffset: -Math.round(h * 0.18 + 40)
   });
 
   state.dimCounter++;
   state.dimensions.push({
     id: Date.now() + Math.random(),
     name: `H${state.dimCounter}`,
-    a: { x: x2, y: y1 },   // top-right corner
-    b: { x: x2, y: y2 },   // bottom-right corner
+    a: { x: x2, y: y1 },
+    b: { x: x2, y: y2 },
     mm: h * state.mmPerPixel,
     hidden: false,
-    dimOffset: Math.round(w * 0.18 + 40)   // offset to the right of the right edge
+    dimOffset: Math.round(w * 0.18 + 40)
   });
 
   setPhase('measure-idle');
 }
+
+/* ============================================================
+   RECT-MEASURE MODAL HANDLERS
+   ============================================================ */
+function closeRectMeasureModal() {
+  document.getElementById('modal-rect-measure').classList.remove('show');
+  state.pendingRectProposal = null;
+  setPhase('measure-idle');
+}
+
+document.getElementById('rect-measure-width').addEventListener('click', () => {
+  const p = state.pendingRectProposal;
+  document.getElementById('modal-rect-measure').classList.remove('show');
+  state.pendingRectProposal = null;
+  if (!p) { setPhase('measure-idle'); return; }
+
+  const w = p.bbox.x2 - p.bbox.x1;
+  const h = p.bbox.y2 - p.bbox.y1;
+  state.dimCounter++;
+  state.dimensions.push({
+    id: Date.now() + Math.random(),
+    name: `W${state.dimCounter}`,
+    a: { x: p.bbox.x1, y: p.bbox.y2 },
+    b: { x: p.bbox.x2, y: p.bbox.y2 },
+    mm: w * state.mmPerPixel,
+    hidden: false,
+    dimOffset: -Math.round(h * 0.18 + 40)
+  });
+  setPhase('measure-idle');
+});
+
+document.getElementById('rect-measure-height').addEventListener('click', () => {
+  const p = state.pendingRectProposal;
+  document.getElementById('modal-rect-measure').classList.remove('show');
+  state.pendingRectProposal = null;
+  if (!p) { setPhase('measure-idle'); return; }
+
+  const w = p.bbox.x2 - p.bbox.x1;
+  const h = p.bbox.y2 - p.bbox.y1;
+  state.dimCounter++;
+  state.dimensions.push({
+    id: Date.now() + Math.random(),
+    name: `H${state.dimCounter}`,
+    a: { x: p.bbox.x2, y: p.bbox.y1 },
+    b: { x: p.bbox.x2, y: p.bbox.y2 },
+    mm: h * state.mmPerPixel,
+    hidden: false,
+    dimOffset: Math.round(w * 0.18 + 40)
+  });
+  setPhase('measure-idle');
+});
+
+document.getElementById('rect-measure-both').addEventListener('click', () => {
+  const p = state.pendingRectProposal;
+  document.getElementById('modal-rect-measure').classList.remove('show');
+  state.pendingRectProposal = null;
+  if (!p) { setPhase('measure-idle'); return; }
+
+  const w = p.bbox.x2 - p.bbox.x1;
+  const h = p.bbox.y2 - p.bbox.y1;
+
+  state.dimCounter++;
+  state.dimensions.push({
+    id: Date.now() + Math.random(),
+    name: `W${state.dimCounter}`,
+    a: { x: p.bbox.x1, y: p.bbox.y2 },
+    b: { x: p.bbox.x2, y: p.bbox.y2 },
+    mm: w * state.mmPerPixel,
+    hidden: false,
+    dimOffset: -Math.round(h * 0.18 + 40)
+  });
+
+  state.dimCounter++;
+  state.dimensions.push({
+    id: Date.now() + Math.random(),
+    name: `H${state.dimCounter}`,
+    a: { x: p.bbox.x2, y: p.bbox.y1 },
+    b: { x: p.bbox.x2, y: p.bbox.y2 },
+    mm: h * state.mmPerPixel,
+    hidden: false,
+    dimOffset: Math.round(w * 0.18 + 40)
+  });
+
+  setPhase('measure-idle');
+});
+
+document.getElementById('rect-measure-diagonal').addEventListener('click', () => {
+  const p = state.pendingRectProposal;
+  document.getElementById('modal-rect-measure').classList.remove('show');
+  state.pendingRectProposal = null;
+  if (!p || !p.diagonal) { setPhase('measure-idle'); return; }
+
+  const pixels = Math.hypot(
+    p.diagonal.b.x - p.diagonal.a.x,
+    p.diagonal.b.y - p.diagonal.a.y
+  );
+  state.dimCounter++;
+  state.dimensions.push({
+    id: Date.now() + Math.random(),
+    name: `Diag ${state.dimCounter}`,
+    a: p.diagonal.a,
+    b: p.diagonal.b,
+    mm: pixels * state.mmPerPixel,
+    hidden: false,
+    dimOffset: DIM_OFFSET_DEFAULT
+  });
+  setPhase('measure-idle');
+});
+
+document.getElementById('rect-measure-cancel').addEventListener('click', closeRectMeasureModal);
+
+  
 
    btnAutoDetect.addEventListener('click', () => {
   state.pendingA = null; state.pendingB = null;
@@ -2715,6 +2848,134 @@ function suggestDamageEndpoints(tapPoint) {
   }
 }
 
+/* ============================================================
+   SUGGEST DAMAGE ENDPOINTS FROM A DRAWN RECTANGLE (Phase 15)
+   ============================================================
+   Returns an object with three pieces of geometry derived from
+   the most prominent contour found inside the rectangle:
+
+   - bbox: { x1, y1, x2, y2 } — axis-aligned bounding box of
+     the contour in full-image coordinates. Used to create the
+     Width and Height dimensions.
+   - diagonal: { a, b } — the two contour points farthest apart,
+     for the "longest diagonal" option.
+
+   Returns null if no convincing contour is found.
+   ============================================================ */
+function suggestDamageEndpointsInRect(x1, y1, x2, y2) {
+  if (!state.mmPerPixel) return null;
+
+  const iw = state.photo.width;
+  const ih = state.photo.height;
+
+  const wx  = Math.max(0, Math.round(x1));
+  const wy  = Math.max(0, Math.round(y1));
+  const wx2 = Math.min(iw, Math.round(x2));
+  const wy2 = Math.min(ih, Math.round(y2));
+  const ww  = wx2 - wx;
+  const wh  = wy2 - wy;
+
+  if (ww < 20 || wh < 20) return null;
+
+  const src      = cv.imread(state.photo);
+  const roi      = src.roi(new cv.Rect(wx, wy, ww, wh));
+  const gray     = new cv.Mat();
+  const blurred  = new cv.Mat();
+  const edges    = new cv.Mat();
+  const contours = new cv.MatVector();
+  const hierarchy= new cv.Mat();
+
+  try {
+    cv.cvtColor(roi, gray, cv.COLOR_RGBA2GRAY);
+    cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0);
+    cv.Canny(blurred, edges, 50, 150);
+    cv.findContours(edges, contours, hierarchy,
+                    cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+    const minPerimeter = 0.05 * 2 * (ww + wh);
+
+    let bestContour = null;
+    let bestArea    = 0;
+
+    for (let i = 0; i < contours.size(); i++) {
+      const c   = contours.get(i);
+      const len = cv.arcLength(c, false);
+
+      if (len < minPerimeter) { c.delete(); continue; }
+
+      const rect = cv.boundingRect(c);
+      const area = rect.width * rect.height;
+
+      if (area > bestArea) {
+        if (bestContour) bestContour.delete();
+        bestContour = c;
+        bestArea    = area;
+      } else {
+        c.delete();
+      }
+    }
+
+    if (!bestContour) return null;
+
+    /* Extreme points of the contour — points actually ON the edge,
+       not a bounding box that overshoots rounded corners. */
+    const pts2 = bestContour.data32S;
+    const n2   = pts2.length / 2;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (let i = 0; i < n2; i++) {
+      const px = pts2[i * 2], py = pts2[i * 2 + 1];
+      if (px < minX) minX = px;
+      if (py < minY) minY = py;
+      if (px > maxX) maxX = px;
+      if (py > maxY) maxY = py;
+    }
+    const bbox = {
+      x1: minX + wx,
+      y1: minY + wy,
+      x2: maxX + wx,
+      y2: maxY + wy
+    };
+
+    /* Diameter search for the diagonal option */
+    const pts  = bestContour.data32S;
+    const nPts = pts.length / 2;
+    bestContour.delete();
+
+    const step  = Math.max(1, Math.floor(nPts / 100));
+    let maxDist = 0;
+    let ptA = null, ptB = null;
+
+    for (let i = 0; i < nPts; i += step) {
+      for (let j = i + 1; j < nPts; j += step) {
+        const dx = pts[i * 2] - pts[j * 2];
+        const dy = pts[i * 2 + 1] - pts[j * 2 + 1];
+        const d  = dx * dx + dy * dy;
+        if (d > maxDist) {
+          maxDist = d;
+          ptA = { x: pts[i * 2] + wx, y: pts[i * 2 + 1] + wy };
+          ptB = { x: pts[j * 2] + wx, y: pts[j * 2 + 1] + wy };
+        }
+      }
+    }
+
+    return {
+      bbox,
+      diagonal: (ptA && ptB) ? { a: ptA, b: ptB } : null
+    };
+
+  } catch (err) {
+    console.warn('suggestDamageEndpointsInRect failed:', err);
+    return null;
+  } finally {
+    roi.delete();
+    src.delete();
+    gray.delete();
+    blurred.delete();
+    edges.delete();
+    contours.delete();
+    hierarchy.delete();
+  }
+}
 
 /* ============================================================
    AUTO-DETECT ORCHESTRATOR

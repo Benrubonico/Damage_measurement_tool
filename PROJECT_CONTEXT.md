@@ -108,9 +108,6 @@ Tagged as v1.0-core after phase 13 completion.
 
 Ongoing improvements to the Damage Measurement Tool, in planned order:
 
-- Phase 15 — Assisted automatic damage detection (classical OpenCV,
-  no AI): Canny edge detection + contour analysis on the rectified
-  image to propose measurement endpoints. Inspector confirms or adjusts.
 - Phase 16 — Multi-marker homography: use 4 markers placed around a
   damage to define a reference plane and compute a more precise
   homography. Builds on state.allMarkers from phase 13. Optional
@@ -197,7 +194,14 @@ this project.
     geometry phases. Tag v1.0-core created at this point.
 14. ✅ Extract app.js: all JavaScript moved from index.html to app.js.
     Added to PRE_CACHE_URLS in sw.js. No behaviour change.
-15. ⏸ Assisted damage detection: Canny + contours, no AI.
+15. ✅ Assisted damage detection: Canny + contours, no AI.
+    Two interaction modes: tap (Canny in fixed 120mm window around
+    tap point) and drag-rectangle (Canny inside drawn area). Drag
+    mode opens a modal: Width, Height, Both (W+H), or Longest diagonal.
+    Geometry from contour extreme points, not bounding box, so
+    endpoints land on the real edge of the object. Fallback to
+    rectangle dimensions if Canny finds nothing. Validated on credit
+    card: 85.3 × 55.2 mm vs standard 85.6 × 54.0 mm (<0.4% error).
 16. ⏸ Multi-marker homography: 4-marker reference plane.
 17. ⏸ Per-device lens distortion calibration (checkerboard).
 18. ⏸ Stereometry: light 3D depth estimation from two photos.
@@ -862,7 +866,7 @@ entirely in the browser via ONNX Runtime Web.
     transferable on day one." Return materialises at 12–18 months.
     Cost: 1–2 hours/week.
 
-## How to start the next session (phase 15 — assisted damage detection)
+## How to start the next session (phase 16 — multi-marker homography)
 
 When opening a new chat:
 
@@ -876,14 +880,16 @@ When opening a new chat:
 5. Deliver changes as copy-pasteable fragments for VS Code, not as
    whole-file replacements. Explain each fragment before presenting it.
 
-Phase 15 covers assisted damage detection:
+Phase 16 covers multi-marker homography:
 
-  After a photo is loaded and the marker detected and rectified, run
-  Canny edge detection + contour analysis on the rectified image to
-  propose the two endpoints of the most prominent damage automatically.
-  The inspector sees the proposed points, confirms or drags to adjust,
-  and closes the dimension normally. If no useful proposal is found,
-  the app falls back to the existing manual flow silently.
+  Use 4 ArUco markers placed at the corners of the damage area to
+  define a reference plane and compute a more precise homography.
+  Builds on state.allDetectedMarkers from phase 13. Optional
+  high-precision mode, especially useful for curved surfaces where
+  a single marker is insufficient. Before proposing anything, read
+  applyAutoCalibration(), rectifyImageWithMarker(), and the
+  state.allDetectedMarkers handling in app.js.
+  The branch for this phase is feature/phase-16-multimarker-homography.
 
   Before proposing anything, read the full measurement flow in app.js:
   tryAutoCalibration(), applyAutoCalibration(), setPhase(),
