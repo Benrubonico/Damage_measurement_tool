@@ -686,6 +686,16 @@ a damage report per vehicle registration number.
   official reports. Aerospace-specific format; vehicle equivalent
   would be a standardised damage diagram per insurance or fleet
   management standards.
+  **★ Domain-aware automatic measurement proposals (phase 19 motivation).**
+  Once a labelled damage dataset exists, a trained model (YOLOv8 → ONNX →
+  browser) could learn domain-specific measurement conventions automatically.
+  Example in aerospace: when a dent is detected near rivets, the model
+  proposes the distance from the damage edge to the nearest rivet centre —
+  the measurement inspectors always document in that scenario. No backend
+  required: all inference runs client-side via ONNX Runtime Web. For the
+  personal portfolio the equivalent domain is vehicle bodywork; the pipeline
+  and techniques are identical, only the training photos and class labels
+  differ. This is the long-term destination of the phase 19 roadmap item.
 
 ### Suggested order going forward (post phase 13)
 

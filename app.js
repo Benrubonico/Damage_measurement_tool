@@ -146,6 +146,24 @@ const SAFE_ZONE_RATIO = 0.70;
 const DIM_OFFSET_DEFAULT = -40;
 
 /* ============================================================
+   AUTO-DETECT WINDOW SIZE
+   ============================================================
+   Side length (in real millimetres) of the square region that
+   suggestDamageEndpoints() analyses around the inspector's tap.
+   Expressed in mm so it scales correctly regardless of how far
+   the phone was from the surface when the photo was taken.
+
+   120 mm covers:
+   - A credit card (85.6 mm long) with comfortable margin.
+   - A 1 € coin (23.25 mm) with plenty of margin.
+   - Typical aerospace/automotive dents (20–100 mm range).
+
+   Increase if the damage is consistently larger than the window.
+   Decrease if Canny is capturing too many nearby objects.
+   ============================================================ */
+const AUTO_DETECT_WINDOW_MM = 120;
+
+/* ============================================================
    AUTH / LOGIN
    ============================================================
    HOW TO CONFIGURE:
@@ -357,7 +375,10 @@ const state = {
   penColor: '#e53935',     // currently selected colour (hex string)
   penWidth: 5,             // currently selected stroke width in image px (2 / 5 / 10)
   textSize: 'medium',      // currently selected text size ('small' | 'medium' | 'large')
-  currentStroke: null      // the stroke object being drawn right now (between touchstart and touchend)
+  currentStroke: null,     // the stroke object being drawn right now (between touchstart and touchend)
+
+  /* ---- Rectangle selection (phase 15 auto-detect) ---- */
+  rectStart: null          // image-space {x,y} where the auto-detect drag started; null when inactive
 };
 
 const welcome = document.getElementById('welcome');
@@ -374,11 +395,10 @@ const fileGallery = document.getElementById('file-gallery');
 const btnPickCamera    = document.getElementById('btn-pick-camera');
 const btnPickGallery   = document.getElementById('btn-pick-gallery');
 const btnNewProject    = document.getElementById('btn-new-project');
-const btnRetakeCamera  = document.getElementById('btn-retake-camera');
-const btnRetakeGallery = document.getElementById('btn-retake-gallery');
 const btnConfirmPoint  = document.getElementById('btn-confirm-point');
 const btnConfirmMeas   = document.getElementById('btn-confirm-meas');
 const btnCancelMeas    = document.getElementById('btn-cancel-meas');
+const btnAutoDetect    = document.getElementById('btn-auto-detect');
 const btnAddDim        = document.getElementById('btn-add-dim');
 const fabExitClean     = document.getElementById('fab-exit-clean');
 
@@ -404,8 +424,6 @@ const btnSharePanel    = document.getElementById('btn-share-panel');
    ============================================================ */
 btnPickCamera.addEventListener('click',    () => fileCamera.click());
 btnPickGallery.addEventListener('click',   () => fileGallery.click());
-btnRetakeCamera.addEventListener('click',  () => fileCamera.click());
-btnRetakeGallery.addEventListener('click', () => fileGallery.click());
 
 [fileCamera, fileGallery].forEach(input => {
   input.addEventListener('change', (e) => {
@@ -851,6 +869,25 @@ function redraw() {
   if (state.pendingB) {
     drawCross(state.pendingB.x, state.pendingB.y, '#e53935', crossSize, stroke);
     drawLine(state.pendingA, state.pendingB, '#e53935', stroke);
+  }
+
+  /* Auto-detect rectangle: drawn in green while the inspector is dragging.
+     rectStart is the corner where the drag began; pendingB tracks the
+     current drag position (the opposite corner). Never drawn on export. */
+  if (state.phase === 'detect-tap' && state.rectStart && state.pendingB && !exportMode) {
+    const rx = state.rectStart.x;
+    const ry = state.rectStart.y;
+    const rw = state.pendingB.x - rx;
+    const rh = state.pendingB.y - ry;
+    ctx.save();
+    ctx.strokeStyle = '#27ae60';
+    ctx.lineWidth   = stroke * 1.5;
+    ctx.setLineDash([8 * k, 4 * k]);
+    ctx.strokeRect(rx, ry, rw, rh);
+    ctx.fillStyle = 'rgba(39, 174, 96, 0.08)';
+    ctx.fillRect(rx, ry, rw, rh);
+    ctx.setLineDash([]);
+    ctx.restore();
   }
 
   /* annotations drawn below */
@@ -1335,6 +1372,15 @@ function onTouchStart(evt) {
 
     const imgPos = getImagePoint(t.clientX, t.clientY);
 
+    
+    
+    /* Auto-detect: start rectangle drag or prepare for tap. */
+    if (state.phase === 'detect-tap') {
+      state.rectStart = imgPos;
+      state.pendingB  = imgPos;
+      return;
+    }
+
     /* Pen: start a new stroke. */
     if (state.penActive) {
       pushAnnotationHistory();
@@ -1383,6 +1429,13 @@ function onTouchMove(evt) {
     const t = evt.touches[0];
     const imgPos = getImagePoint(t.clientX, t.clientY);
 
+    /* Auto-detect rectangle: update the dragged corner. */
+    if (state.phase === 'detect-tap' && state.rectStart) {
+      state.pendingB = imgPos;
+      redraw();
+      return;
+    }
+    
     /* Pen: add point to current stroke. */
     if (state.penActive && state.currentStroke) {
       state.currentStroke.points.push(imgPos);
@@ -1434,6 +1487,26 @@ function onTouchEnd(evt) {
     return;
   }
 
+  /* Auto-detect: if the finger moved enough, commit rectangle.
+     If it barely moved (tap), run Canny detection instead. */
+  if (state.phase === 'detect-tap' && state.rectStart) {
+    const t = evt.changedTouches[0];
+    const releaseImg = getImagePoint(t.clientX, t.clientY);
+    const moved = Math.hypot(
+      releaseImg.x - state.rectStart.x,
+      releaseImg.y - state.rectStart.y
+    );
+    if (moved > TAP_THRESHOLD_PX) {
+      commitRectDimensions();
+    } else {
+      const tapPoint = state.rectStart;
+      state.rectStart = null;
+      state.pendingB  = null;
+      runAutoDetect(tapPoint);
+    }
+    return;
+  }
+  
   /* Commit finished pen stroke. */
   if (state.currentStroke) {
     if (state.currentStroke.points.length > 1) {
@@ -1499,6 +1572,13 @@ function onMouseDown(evt) {
 
   const imgPos = getImagePoint(evt.clientX, evt.clientY);
 
+  /* Auto-detect rectangle: start dragging. */
+  if (state.phase === 'detect-tap') {
+    state.rectStart = imgPos;
+    state.pendingB  = imgPos;
+    return;
+  }
+
   /* Pen: start a new stroke. mouseDown stays true so onMouseMove
      receives events; penActive + currentStroke guards the pen path. */
   if (state.penActive) {
@@ -1540,6 +1620,13 @@ function onMouseMove(evt) {
 
   const imgPos = getImagePoint(evt.clientX, evt.clientY);
 
+  /* Auto-detect rectangle: update the dragged corner. */
+  if (state.phase === 'detect-tap' && state.rectStart) {
+    state.pendingB = imgPos;
+    redraw();
+    return;
+  }
+  
   /* Pen: add point to current stroke — takes priority over everything. */
   if (state.penActive && state.currentStroke) {
     state.currentStroke.points.push(imgPos);
@@ -1584,6 +1671,25 @@ function onMouseUp(evt) {
   if (!state.mouseDown) return;
   state.mouseDown = false;
 
+  /* Auto-detect: if the pointer moved enough, commit rectangle.
+     If it barely moved (click), run Canny detection instead. */
+  if (state.phase === 'detect-tap' && state.rectStart) {
+    const releaseImg = getImagePoint(evt.clientX, evt.clientY);
+    const moved = Math.hypot(
+      releaseImg.x - state.rectStart.x,
+      releaseImg.y - state.rectStart.y
+    );
+    if (moved > TAP_THRESHOLD_PX) {
+      commitRectDimensions();
+    } else {
+      const tapPoint = state.rectStart;
+      state.rectStart = null;
+      state.pendingB  = null;
+      runAutoDetect(tapPoint);
+    }
+    return;
+  }
+  
   /* Commit finished pen stroke. */
   if (state.currentStroke) {
     if (state.currentStroke.points.length > 1) {
@@ -2030,8 +2136,8 @@ function setPhase(newPhase) {
 
 function updateButtons() {
   /* Toolbar buttons */
-  [btnNewProject, btnRetakeCamera, btnRetakeGallery, btnConfirmPoint, btnConfirmMeas,
-   btnCancelMeas, btnAddDim]
+  [btnNewProject, btnConfirmPoint, btnConfirmMeas,
+   btnCancelMeas, btnAutoDetect, btnAddDim]
     .forEach(b => b.style.display = 'none');
 
   /* Left-panel secondary buttons */
@@ -2041,27 +2147,29 @@ function updateButtons() {
   /* Floating view-original button */
   fabViewOriginal.style.display = 'none';
 
-/* Show annotation tools section whenever a photo is loaded */
+  /* Show annotation tools section whenever a photo is loaded */
   const annTools = document.getElementById('annotation-tools');
   if (annTools) annTools.style.display = (state.phase === 'init') ? 'none' : 'block';
 
   if (state.phase === 'init') return;
 
-  btnNewProject.style.display    = 'block';
-  btnRetakeCamera.style.display  = 'block';
-  btnRetakeGallery.style.display = 'block';
+  btnNewProject.style.display = 'block';
 
   if (state.phase === 'calib-1-set' || state.phase === 'calib-2-set') {
     btnConfirmPoint.style.display = 'block';
   }
   else if (state.phase === 'measure-idle') {
+    btnAutoDetect.style.display      = state.calibMarkerId != null ? 'block' : 'none';
     btnAddDim.style.display          = 'block';
     btnCleanPanel.style.display      = 'block';
     btnSavePanel.style.display       = 'block';
     btnSharePanel.style.display      = 'block';
     if (state.originalPhoto) fabViewOriginal.style.display = 'block';
     fabHeatmap.style.display = 'block';
-    }
+  }
+  else if (state.phase === 'detect-tap') {
+    btnCancelMeas.style.display = 'block';
+  }
   else if (state.phase === 'measure-1-empty') {
     btnCancelMeas.style.display = 'block';
   }
@@ -2079,6 +2187,21 @@ function updateButtons() {
 }
 
 function updateHint() {
+  /* hint-action class: green border + text, used for phases
+     that require an active gesture from the inspector. */
+  const isAction = (
+    state.phase === 'detect-tap'      ||
+    state.phase === 'measure-1-empty' ||
+    state.phase === 'measure-1'       ||
+    state.phase === 'measure-2-empty' ||
+    state.phase === 'measure-2'       ||
+    state.phase === 'calib-1'         ||
+    state.phase === 'calib-1-set'     ||
+    state.phase === 'calib-2'         ||
+    state.phase === 'calib-2-set'
+  );
+  hint.classList.toggle('hint-action', isAction);
+
   if (state.phase === 'calib-1') {
     hint.textContent = state.editingReference
       ? 'Re-picking reference. Tap the first reference point.'
@@ -2092,9 +2215,11 @@ function updateHint() {
   } else if (state.phase === 'measure-idle') {
     const visible = state.dimensions.filter(m => !m.hidden).length;
     const total = state.dimensions.length;
-    if (total === 0) hint.textContent = 'Scale is set. Tap "Add dimension" to start measuring.';
-    else if (visible === total) hint.textContent = `${total} dimension${total > 1 ? 's' : ''} placed. Tap "Add dimension" to add another.`;
-    else hint.textContent = `${visible}/${total} visible. Tap "Add dimension" to add another.`;
+    if (total === 0) hint.textContent = 'Scale is set. Use 🎯 Auto-detect or ➕ Add manual dim to measure.';
+    else if (visible === total) hint.textContent = `${total} dimension${total > 1 ? 's' : ''} placed.`;
+    else hint.textContent = `${visible}/${total} visible.`;
+  } else if (state.phase === 'detect-tap') {
+    hint.textContent = '🎯 Draw a rectangle over the object to measure — tap and drag without lifting.';
   } else if (state.phase === 'measure-1-empty') {
     hint.textContent = 'Tap the first endpoint of the dimension.';
   } else if (state.phase === 'measure-1') {
@@ -2110,6 +2235,71 @@ function updateHint() {
 /* ============================================================
    ADD DIMENSION + CONFIRMATIONS
    ============================================================ */
+
+/* ============================================================
+   COMMIT RECTANGLE DIMENSIONS (phase 15)
+   ============================================================
+   Called when the inspector releases the drag in detect-tap
+   mode. Creates two dimensions from the rectangle: one for
+   the horizontal extent (Width) and one for the vertical
+   extent (Height). Both are added directly to state.dimensions
+   without going through the measure-1/2 flow.
+
+   The dimension lines are offset outward from the rectangle
+   edges so they don't overlap the object:
+   - Width dimension: offset upward (negative Y direction)
+   - Height dimension: offset to the right (positive X direction)
+
+   If the rectangle is degenerate (either side < 1 px), the
+   function does nothing and returns to measure-idle silently.
+   ============================================================ */
+function commitRectDimensions() {
+  const a = state.rectStart;
+  const b = state.pendingB;
+  state.rectStart = null;
+  state.pendingB  = null;
+
+  if (!a || !b) { setPhase('measure-idle'); return; }
+
+  const x1 = Math.min(a.x, b.x);
+  const y1 = Math.min(a.y, b.y);
+  const x2 = Math.max(a.x, b.x);
+  const y2 = Math.max(a.y, b.y);
+  const w  = x2 - x1;
+  const h  = y2 - y1;
+
+  if (w < 1 || h < 1) { setPhase('measure-idle'); return; }
+
+  state.dimCounter++;
+  state.dimensions.push({
+    id: Date.now() + Math.random(),
+    name: `W${state.dimCounter}`,
+    a: { x: x1, y: y2 },   // bottom-left corner
+    b: { x: x2, y: y2 },   // bottom-right corner
+    mm: w * state.mmPerPixel,
+    hidden: false,
+    dimOffset: -Math.round(h * 0.18 + 40)  // offset above the bottom edge
+  });
+
+  state.dimCounter++;
+  state.dimensions.push({
+    id: Date.now() + Math.random(),
+    name: `H${state.dimCounter}`,
+    a: { x: x2, y: y1 },   // top-right corner
+    b: { x: x2, y: y2 },   // bottom-right corner
+    mm: h * state.mmPerPixel,
+    hidden: false,
+    dimOffset: Math.round(w * 0.18 + 40)   // offset to the right of the right edge
+  });
+
+  setPhase('measure-idle');
+}
+
+   btnAutoDetect.addEventListener('click', () => {
+  state.pendingA = null; state.pendingB = null;
+  setPhase('detect-tap');
+});
+
 btnAddDim.addEventListener('click', () => {
   state.pendingA = null; state.pendingB = null;
   setPhase('measure-1-empty');
@@ -2382,6 +2572,180 @@ window.addEventListener('resize', () => {
   if (state.photo) redraw();
 });
 
+/* ============================================================
+   AUTO-DETECT DAMAGE ENDPOINTS (Phase 15)
+   ============================================================
+   suggestDamageEndpoints(tapPoint) takes a single image-space
+   point (where the inspector tapped) and returns the two
+   endpoints of the most prominent contour found in a window
+   around that point, or null if nothing convincing is found.
+
+   Algorithm:
+   1. Convert the window region to grayscale.
+   2. Apply Gaussian blur to reduce noise before Canny.
+   3. Run Canny edge detection.
+   4. Find contours inside the window.
+   5. Discard contours that are too small (likely noise) or
+      that touch the window boundary (likely the object extends
+      beyond the window — the inspector should retap closer).
+   6. Pick the contour with the largest arc length (perimeter).
+   7. Return the two points of that contour that are farthest
+      apart — the "diameter" of the contour, which corresponds
+      to the maximum extent of the damage.
+
+   All coordinates returned are in full-image space (not window
+   space), so pendingA/pendingB plug directly into the existing
+   measurement flow.
+
+   Memory: every cv.Mat is freed in finally{}, same pattern as
+   detectArucoMarker. Returns null on any OpenCV failure.
+   ============================================================ */
+function suggestDamageEndpoints(tapPoint) {
+  if (!state.mmPerPixel) return null;
+
+  /* Convert the window size from mm to pixels using the current
+     scale. Half-side in each direction from the tap centre. */
+  const halfPx = Math.round((AUTO_DETECT_WINDOW_MM / 2) / state.mmPerPixel);
+
+  /* Window bounds, clamped to image dimensions */
+  const iw = state.photo.width;
+  const ih = state.photo.height;
+  const wx = Math.max(0, Math.round(tapPoint.x) - halfPx);
+  const wy = Math.max(0, Math.round(tapPoint.y) - halfPx);
+  const ww = Math.min(iw - wx, halfPx * 2);
+  const wh = Math.min(ih - wy, halfPx * 2);
+
+  /* Window must be at least 20×20 px to be meaningful */
+  if (ww < 20 || wh < 20) return null;
+
+  const src      = cv.imread(state.photo);
+  const roi      = src.roi(new cv.Rect(wx, wy, ww, wh));
+  const gray     = new cv.Mat();
+  const blurred  = new cv.Mat();
+  const edges    = new cv.Mat();
+  const contours = new cv.MatVector();
+  const hierarchy= new cv.Mat();
+
+  try {
+    cv.cvtColor(roi, gray, cv.COLOR_RGBA2GRAY);
+
+    /* Gaussian blur reduces noise that would otherwise produce
+       many spurious short edges and fragment real contours. */
+    cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0);
+
+    /* Canny thresholds: lower=50, upper=150 are standard
+       defaults that work well on medium-contrast surfaces.
+       These could become configurable constants in the future. */
+    cv.Canny(blurred, edges, 50, 150);
+
+    cv.findContours(edges, contours, hierarchy,
+                    cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+    /* Minimum contour perimeter: 8% of the window perimeter.
+       Filters out single-pixel noise specks. */
+    const minPerimeter = 0.08 * 2 * (ww + wh);
+
+    let bestContour = null;
+    let bestLen     = 0;
+
+    for (let i = 0; i < contours.size(); i++) {
+      const c   = contours.get(i);
+      const len = cv.arcLength(c, false);
+
+      if (len < minPerimeter) { c.delete(); continue; }
+
+      /* Discard contours that touch the window edge — they are
+         likely part of a larger object extending beyond the
+         window. The inspector should tap closer to the centre. */
+      const rect = cv.boundingRect(c);
+      const touchesEdge = (rect.x <= 1) || (rect.y <= 1) ||
+                          (rect.x + rect.width  >= ww - 1) ||
+                          (rect.y + rect.height >= wh - 1);
+      if (touchesEdge) { c.delete(); continue; }
+
+      if (len > bestLen) {
+        if (bestContour) bestContour.delete();
+        bestContour = c;
+        bestLen = len;
+      } else {
+        c.delete();
+      }
+    }
+
+    if (!bestContour) return null;
+
+    /* Find the two points of the contour that are farthest apart.
+       For small contours (< 200 points) we do an exact O(n²)
+       search. For larger ones we sub-sample to keep it fast. */
+    const pts  = bestContour.data32S;   // flat [x0,y0, x1,y1, ...]
+    const nPts = pts.length / 2;
+    bestContour.delete();
+
+    /* Sub-sample: at most 100 points for the diameter search */
+    const step  = Math.max(1, Math.floor(nPts / 100));
+    let maxDist = 0;
+    let ptA = null, ptB = null;
+
+    for (let i = 0; i < nPts; i += step) {
+      for (let j = i + 1; j < nPts; j += step) {
+        const dx = pts[i * 2] - pts[j * 2];
+        const dy = pts[i * 2 + 1] - pts[j * 2 + 1];
+        const d  = dx * dx + dy * dy;
+        if (d > maxDist) {
+          maxDist = d;
+          ptA = { x: pts[i * 2] + wx, y: pts[i * 2 + 1] + wy };
+          ptB = { x: pts[j * 2] + wx, y: pts[j * 2 + 1] + wy };
+        }
+      }
+    }
+
+    return (ptA && ptB) ? { a: ptA, b: ptB } : null;
+
+  } catch (err) {
+    console.warn('suggestDamageEndpoints failed:', err);
+    return null;
+  } finally {
+    roi.delete();
+    src.delete();
+    gray.delete();
+    blurred.delete();
+    edges.delete();
+    contours.delete();
+    hierarchy.delete();
+  }
+}
+
+
+/* ============================================================
+   AUTO-DETECT ORCHESTRATOR
+   ============================================================
+   Called by handleTap when phase is 'detect-tap'. Runs the
+   suggestion, places the proposed points, and transitions to
+   the appropriate phase:
+
+   - If a proposal is found → pendingA + pendingB set,
+     phase becomes 'measure-2' so the inspector can confirm
+     or drag-adjust the endpoints normally.
+
+   - If nothing found → fall back silently to 'measure-1-empty'
+     (the standard manual flow). The hint will guide the
+     inspector from there.
+   ============================================================ */
+function runAutoDetect(tapPoint) {
+  const proposal = suggestDamageEndpoints(tapPoint);
+
+  if (proposal) {
+    console.log('Auto-detect proposal:', proposal);
+    state.pendingA = proposal.a;
+    state.pendingB = proposal.b;
+    setPhase('measure-2');
+  } else {
+    console.log('Auto-detect found nothing — falling back to manual flow.');
+    state.pendingA = null;
+    state.pendingB = null;
+    setPhase('measure-1-empty');
+  }
+}
 
 /* ============================================================
    ARUCO MARKER DETECTION

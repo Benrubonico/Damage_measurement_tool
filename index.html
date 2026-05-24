@@ -163,13 +163,23 @@
       top: 12px;
       left: 12px;
       right: 12px;
-      padding: 10px 14px;
-      background: rgba(0,0,0,0.7);
+      padding: 11px 16px;
+      background: rgba(161, 0, 255, 0.82);
+      border: 1.5px solid rgba(255, 255, 255, 0.25);
       border-radius: 8px;
-      font-size: 14px;
+      font-size: 15px;
+      font-weight: 600;
       text-align: center;
       pointer-events: none;
       z-index: 5;
+      color: #fff;
+      letter-spacing: 0.01em;
+    }
+
+    #hint.hint-action {
+      background: rgba(161, 0, 255, 0.95);
+      border-color: #fff;
+      color: #fff;
     }
 
     #scale-badge {
@@ -646,15 +656,14 @@ details[open] > summary::after   { content: '▾'; }
 
   <div id="controls" style="display:none">
     <button id="btn-new-project"    class="secondary icon" title="Start new project">🔄</button>
-    <button id="btn-retake-camera"  class="secondary icon" title="New photo (camera)">📷</button>
-    <button id="btn-retake-gallery" class="secondary icon" title="New photo (gallery)">🖼</button>
     <button id="btn-confirm-point"  class="success"   style="display:none">✓ Confirm point</button>
     <button id="btn-confirm-meas"   class="success"   style="display:none">✓ Close dimension</button>
     <button id="btn-cancel-meas"    class="secondary" style="display:none">Cancel</button>
-    <button id="btn-add-dim"        class="primary"   style="display:none">➕ Add dimension</button>
+    <button id="btn-auto-detect"    class="primary"   style="display:none">🎯 Auto-detect dim</button>
+    <button id="btn-add-dim"        class="success"   style="display:none">➕ Add manual dim</button>
     <button id="fab-view-original"  class="secondary" style="display:none">⊙ View original</button>
     <button id="fab-heatmap"        class="secondary" style="display:none">◎ Accuracy lens map</button>
-     </div>
+  </div>
 </div>
 
 <button id="fab-exit-clean">✕</button>
@@ -902,7 +911,8 @@ details[open] > summary::after   { content: '▾'; }
           <h4>3 · Measure</h4>
           <ul>
             <li>The scale is set <strong>automatically</strong> when a marker is detected.</li>
-            <li>Tap <strong>➕ Add dimension</strong> to place a measurement. Confirm each endpoint.</li>
+            <li>Tap <strong>🎯 Auto-detect dim</strong> for assisted detection: tap once on the damage and the app proposes the two endpoints automatically. Drag to adjust if needed, then confirm.</li>
+            <li>Tap <strong>➕ Add manual dim</strong> to place endpoints fully by hand. Use this when auto-detect fails or the damage has no clear edges.</li>
             <li>Pinch or scroll to zoom in for precise placement.</li>
             <li>Tap the <strong>scale badge</strong> (bottom-left) to edit the reference value.</li>
           </ul>
@@ -918,6 +928,16 @@ details[open] > summary::after   { content: '▾'; }
         </div>
 
         <div>
+          <h4>🎯 Auto-detect tips</h4>
+          <ul>
+            <li>Tap the <strong>centre of the damage</strong>, not the edge. The algorithm searches outward from that point.</li>
+            <li>Works best with a <strong>single clear object</strong> on a uniform background (dent on a flat panel, coin on a surface).</li>
+            <li>If the proposal is wrong, drag the endpoints or cancel and use <strong>➕ Add manual dim</strong> instead.</li>
+            <li>Auto-detect only works when an ArUco marker was detected (not with manual calibration).</li>
+          </ul>
+        </div>
+
+        <div>
           <h4>⚠ Accuracy limits</h4>
           <ul>
             <li>Error ~0.3% at image centre, up to ~3% near the edges.</li>
@@ -929,7 +949,7 @@ details[open] > summary::after   { content: '▾'; }
       </div>
     </details>
   </div>
-
+-
 </div>
 
 <div id="panel-backdrop"></div>
