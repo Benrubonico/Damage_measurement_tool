@@ -19,6 +19,7 @@ const CACHE_NAME    = `dmt-cache-${CACHE_VERSION}`;
    so installation stays fast. */
 const PRE_CACHE_URLS = [
   './',
+  './app.js',
   './index.html',
   './manifest.json',
   './icons/icon-192.png',
