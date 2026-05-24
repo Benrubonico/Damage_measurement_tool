@@ -31,6 +31,7 @@ Hosted on GitHub (private repo, set to private in phase 9).
 Deployed on Azure Static Web Apps (phase 9).
 Installable as a PWA (Progressive Web App) on any device.
 Tagged as v1.0-core after phase 13 completion.
+Tagged as v1.1-extract-app-js after phase 14 completion.
 
 ### Implemented features
 
@@ -108,9 +109,6 @@ Tagged as v1.0-core after phase 13 completion.
 
 Ongoing improvements to the Damage Measurement Tool, in planned order:
 
-- Phase 14 — Extract app.js: move all JavaScript from index.html
-  to a separate app.js file. Add app.js to PRE_CACHE_URLS in sw.js.
-  No behaviour change, maintainability only. Required before phase 15.
 - Phase 15 — Stereometry: light 3D depth estimation from two photos
   of the same damage (both with visible marker), aligned via marker
   anchor, depth by triangulation. Two photos required, third optional.
@@ -201,7 +199,9 @@ when the tool reaches maturity. It is not a phase of this project.
     used as primary scale (behaviour preserved). All detected marker
     corners stored in state.allMarkers as groundwork for future
     geometry phases. Tag v1.0-core created at this point.
-14. ⏸ Extract app.js (maintainability refactor, required before 15+).
+14. ✅ Extract app.js (maintainability refactor). JavaScript moved to
+    app.js, added to PRE_CACHE_URLS in sw.js. Tag v1.1-extract-app-js
+    created. Branch feature/phase-15-stereometry opened.
 15. ⏸ Stereometry: light 3D depth estimation from two photos.
 16. ⏸ Assisted damage detection: Canny + contours, no AI.
 17. ⏸ Multi-marker homography: 4-marker reference plane for curved
@@ -846,13 +846,13 @@ entirely in the browser via ONNX Runtime Web.
     transferable on day one." Return materialises at 12–18 months.
     Cost: 1–2 hours/week.
 
-## How to start the next session (phase 14 — extract app.js)
+## How to start the next session (phase 15 — stereometry)
 
 When opening a new chat:
 
-1. Confirm that the latest index.html and this PROJECT_CONTEXT.md
+1. Confirm that the latest app.js and this PROJECT_CONTEXT.md
    are present in project files.
-2. Read PROJECT_CONTEXT.md and index.html before doing anything else.
+2. Read PROJECT_CONTEXT.md and app.js before doing anything else.
 3. When code inspection is needed, read specific fragments by line
    range — do NOT ask the user to paste fragments and do NOT rely
    on memory of earlier chat content.
@@ -861,17 +861,27 @@ When opening a new chat:
 5. Deliver changes as copy-pasteable fragments for VS Code, not as
    whole-file replacements. Explain each fragment before presenting it.
 
-Phase 14 covers the app.js extraction:
+Phase 15 covers stereometry — light 3D depth estimation:
 
-  Move all content inside the <script>...</script> block in index.html
-  to a new file called app.js in the repository root. In index.html,
-  replace the <script> block with <script src="app.js"></script>.
-  Add './app.js' to the PRE_CACHE_URLS list in sw.js so the service
-  worker caches it. No behaviour change — maintainability only.
+  The user loads two photos of the same damage, both with the ArUco
+  marker visible. The app aligns the two images using the marker as
+  a geometric anchor and estimates depth by triangulation. The result
+  is a depth value (mm) for the damage feature, displayed alongside
+  the existing 2D measurements.
 
-  Verify the app loads correctly after the change before committing.
-  Suggested commit message: `phase 14 complete: extract app.js`.
+  Two photos are required; a third is optional for redundancy.
+  No additional hardware required — standard phone camera only.
 
-  After committing, open the branch for phase 15:
-  git checkout -b feature/phase-15-stereometry
-  git push origin feature/phase-15-stereometry
+  Before writing any code, explain the approach in plain language
+  and get explicit approval for the implementation plan.
+
+  Active branch: feature/phase-15-stereometry
+  Suggested commit message: `phase 15 complete: stereometry`.
+
+  After committing and merging to main, create the tag:
+  git tag v1.2-stereometry
+  git push origin v1.2-stereometry
+
+  Then open the branch for phase 16:
+  git checkout -b feature/phase-16-detection-no-ai
+  git push origin feature/phase-16-detection-no-ai
