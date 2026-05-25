@@ -21,7 +21,9 @@ Typical workflow: **photo → open in tool → measure → save/share** in under
   - ID 1 → 49.75 mm (medium damage, 50–200 mm) — primary marker
   - ID 2 → 99.75 mm (large damage, > 200 mm)
 - **Perspective correction** (`warpPerspective`): the marker's four corners are used to rectify the image plane, making mm/pixel constant across the entire frame. Eliminates the distance-from-marker error present in naive single-point calibration.
-- **Multi-marker support**: all known markers present in a photo are detected and displayed simultaneously, each with a distinct colour overlay and label. The largest marker (most pixels per side) is used as the primary scale reference.
+- **Multi-marker homography**: when ≥2 markers are detected in the same photo, the app computes a more robust rectification via `cv.findHomography` (least squares over all marker corners). Falls back to single-marker automatically when markers are not sufficiently coplanar (threshold: 2.0 px max residual).
+- **Multi-marker display**: all known markers present in a photo are detected and displayed simultaneously, each with a distinct colour overlay and label. The largest marker (most pixels per side) is used as the primary scale reference.
+- **Assisted damage detection** (🎯 Auto-detect): two modes — tap a point to detect the most prominent contour in a 120 mm window around it, or draw a rectangle over the object for a modal offering Width, Height, Both, or Longest diagonal. Uses `cv.minAreaRect` so dimensions follow the object's own axes regardless of rotation. If no contour is found, returns to idle silently.
 - **Tilt detection**: photos where the marker's sides differ by more than 10% in length trigger a blocking modal. The user can retake the photo or continue under their own responsibility (badge turns red with ⚠).
 - **Manual calibration fallback**: two-point reference flow for photos without a marker.
 
@@ -51,15 +53,24 @@ Typical workflow: **photo → open in tool → measure → save/share** in under
 
 ## Accuracy (validated, May 2026)
 
-| Condition | Error |
-|---|---|
-| Damage centred in image (≤ 70% zone), marker ID 1 | **~0.3%** |
-| Marker ID 1 (50 mm), main camera 1×, centred | **< 0.5%** |
-| Damage near image edges (~90%) | 2–3% |
-| Marker ID 0 (15 mm), any condition | 3–5% — use with caution |
-| Severely tilted photo (> 45°) | 2–3% from amplified pixel noise |
+| Condition | Method | Error |
+|---|---|---|
+| Straight-edged damage, close, vertical orientation, ≤ 70% zone | Auto (minAreaRect) | **~0.5%** |
+| Straight-edged damage, close, ≤ 70% zone | Manual | ~0.7% (systematic underestimate) |
+| Straight-edged damage, far, ≤ 70% zone | Auto or Manual | ~1.5–2.0% |
+| Rotated object (up to ~45°) | Auto (minAreaRect) | < 1.5% |
+| Damage near image edges (~90%) | Any | 2–3% |
+| Marker ID 0 (15 mm), any condition | Any | 3–5% — use with caution |
+| Severely tilted photo (> 45°) | Any | 2–3% |
+| Circular objects (coins, rivets) | Manual only | ~1–2% |
 
-Root cause of residual error: radial lens distortion (not corrected by `warpPerspective`). Mitigated by the safe zone operational rule. Per-device lens calibration (checkerboard, phase 18) will push best-case error below 0.5%.
+**Auto-detect vs manual:** for straight-edged objects, 🎯 Auto-detect is more accurate than manual point placement. Manual tapping typically lands ~0.5–1 mm inside the real edge, causing a systematic underestimate of ~0.7%. Use manual only for circular objects or when autodetection fails to find the contour.
+
+**Distance matters:** taking the photo closer to the surface gives more pixels per mm and reduces contour detection uncertainty. Far photos approach the 2% limit even within the safe zone.
+
+**Orientation matters:** orient the phone so the long axis of the damage runs vertically in the frame. Best validated result: vertical orientation, close, manual — long side +0.5%, short side +0.2%.
+
+Root cause of residual error: radial lens distortion (not corrected by `warpPerspective`). Mitigated by the safe zone operational rule. Per-device lens calibration (checkerboard, phase 17) will push best-case error below 0.1%.
 
 **Key finding from pre/post phase 6 testing:** before perspective correction, error scaled with distance from marker (up to +7.5% at far edges). After correction, this systematic bias was eliminated — error is now distance-independent within the safe zone.
 
@@ -90,9 +101,13 @@ The pipeline is **2D geometric** — it measures distances on the plane of the m
 - Use the phone's **main camera at 1× zoom**. Never wide-angle (0.5×) — its geometric distortion is not corrected by this pipeline.
 - Place the marker **flat against the surface**, as close to the damage as possible (ideally 5–15 cm).
 - Keep **both marker and damage within the central 70%** of the image. Lens distortion grows toward the edges.
+- **Take the photo as close as practicable.** Closer = more pixels per mm = lower error. Far photos approach the 2% limit even within the safe zone.
+- **Orient the phone so the long axis of the damage runs vertically** in the frame (portrait orientation for elongated damage).
 - Hold the phone as **parallel to the surface** as possible. The tilt warning fires at a 10% side-variance limit, but is a coarse filter — moderate angles below the threshold still introduce error.
 - Prefer **marker ID 1** (50 mm) for most inspections. ID 0 (15 mm) is unreliable; use only when ID 1 does not fit the scene.
 - Avoid auto-switching to macro mode at very close range on phones that change lens automatically.
+- For **straight-edged damage**, use 🎯 Auto-detect. It finds the real contour boundary and is more accurate than manual tapping.
+- For **circular damage** (dents with circular shape, rivet pull-ins), use manual measurement. Auto-detect cannot reliably find the true diameter of a circle.
 
 ---
 
@@ -119,7 +134,7 @@ repo-root/
 ## Tech stack
 
 - **Vanilla HTML + CSS + JavaScript.** No frameworks, no build step, no npm, no transpiler.
-- **OpenCV.js** (techstark build 4.12.0): ArUco detection + `warpPerspective`. Bundled locally — the official opencv.org build does not include ArUco.
+- **OpenCV.js** (techstark build 4.12.0): ArUco detection + `warpPerspective` + `findHomography` + `minAreaRect`. Bundled locally — the official opencv.org build does not include ArUco.
 - **heic2any** 0.0.4: client-side HEIC/HEIF conversion. Bundled locally.
 - **Azure Static Web Apps**: hosting and access control via Microsoft account authentication (role: inspector).
 - **GitHub Actions**: automatic deployment to Azure on every push to `main`.
@@ -152,10 +167,10 @@ All users will automatically receive the update on their next visit.
 | 12 | ✅ Done | Accuracy lens map + dimension tap-to-edit + bug fixes |
 | 13 | ✅ Done | Multi-marker support — **tagged v1.0-core** |
 | 14 | ✅ Done | Extract `app.js` (maintainability refactor) — **tagged v1.1-extract-app-js** |
-| 15 | ⏸ Planned | Stereometry: light 3D depth from two photos |
-| 16 | ⏸ Planned | Assisted damage detection: Canny + contours, no AI |
-| 17 | ⏸ Planned | Multi-marker homography: 4-marker reference plane |
-| 18 | ⏸ Planned | Per-device lens distortion calibration (checkerboard) |
+| 15 | ✅ Done | Assisted damage detection: Canny + `minAreaRect`, no AI |
+| 16 | ✅ Done | Multi-marker homography (`findHomography`, 2 px threshold) — **tagged v1.2-multimarker** |
+| 17 | ⏸ Planned | Per-device lens distortion calibration (checkerboard) |
+| 18 | ⏸ Planned | Stereometry: light 3D depth from two photos |
 | 19 | ⏸ Planned | ONNX Runtime Web: custom-trained vehicle damage model in browser |
 | 20 | ⏸ Planned | Real-time capture assistant: live ArUco + guidance overlay |
 

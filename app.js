@@ -571,7 +571,23 @@ function tryAutoCalibration() {
       return;
     }
 
-    /* Foto plana: aplicar la calibración directamente. */
+    /* Phase 16: if ≥2 markers detected, use multi-marker homography
+       for a more robust rectification. Falls back to single-marker
+       (phase 6) if the multi-marker attempt throws. */
+    if (result.markers.length >= 2) {
+      console.log(`Phase 16: ${result.markers.length} markers detected — ` +
+                  `attempting multi-marker homography.`);
+      try {
+        applyAutoCalibration(m, false, result.markers);
+        return;
+      } catch (err) {
+        console.warn('Multi-marker homography failed, falling back ' +
+                     'to single-marker:', err);
+        /* Fall through to single-marker path below. */
+      }
+    }
+
+    /* Single marker (phase 6 path). */
     applyAutoCalibration(m, false);
     return;
   }
@@ -601,15 +617,33 @@ function tryAutoCalibration() {
    back to the pre-step-2 behaviour: use the original photo with
    the (non-constant) marker-derived scale. The app keeps
    working, just without the rectification benefit. */
-function applyAutoCalibration(marker, tilted) {
+function applyAutoCalibration(marker, tilted, allMarkers) {
   let rectified = null;
   try {
-    rectified = rectifyImageWithMarker(
-      state.photo, marker.corners, marker.sizeMm
-    );
+    if (allMarkers && allMarkers.length >= 2) {
+      /* Phase 16: multi-marker path. */
+      rectified = rectifyImageWithMultipleMarkers(state.photo, allMarkers);
+    } else {
+      /* Phase 6: single-marker path. */
+      rectified = rectifyImageWithMarker(
+        state.photo, marker.corners, marker.sizeMm
+      );
+    }
   } catch (err) {
-    console.warn('Rectification failed, falling back to ' +
-                 'non-rectified calibration:', err);
+    console.warn('Multi-marker rectification failed:', err);
+    /* If the multi-marker attempt failed, retry with the single
+       best marker (phase 6 path) before giving up entirely. */
+    if (allMarkers && allMarkers.length >= 2) {
+      try {
+        console.log('Retrying with single-marker rectification (phase 6 fallback).');
+        rectified = rectifyImageWithMarker(
+          state.photo, marker.corners, marker.sizeMm
+        );
+      } catch (err2) {
+        console.warn('Single-marker rectification also failed, ' +
+                     'falling back to non-rectified calibration:', err2);
+      }
+    }
   }
 
   if (rectified) {
@@ -2280,9 +2314,11 @@ function commitRectDimensions() {
     return;
   }
 
-  /* Fallback: Canny found nothing — use rectangle dimensions directly. */
-  console.log('Rect auto-detect found nothing — using rectangle dimensions.');
-  addRectFallbackDimensions(x1, y1, x2, y2);
+  /* Canny found nothing inside the rectangle — return to idle
+     without creating any dimension. The inspector can retry with
+     a different rectangle or switch to manual flow. */
+  console.log('Rect auto-detect found nothing — returning to idle.');
+  setPhase('measure-idle');
 }
 
 /* Creates W and H dimensions from a raw rectangle.
@@ -2331,17 +2367,16 @@ document.getElementById('rect-measure-width').addEventListener('click', () => {
   state.pendingRectProposal = null;
   if (!p) { setPhase('measure-idle'); return; }
 
-  const w = p.bbox.x2 - p.bbox.x1;
-  const h = p.bbox.y2 - p.bbox.y1;
+  const rr = p.rotatedRect;
   state.dimCounter++;
   state.dimensions.push({
     id: Date.now() + Math.random(),
     name: `W${state.dimCounter}`,
-    a: { x: p.bbox.x1, y: p.bbox.y2 },
-    b: { x: p.bbox.x2, y: p.bbox.y2 },
-    mm: w * state.mmPerPixel,
+    a: rr.vertices[0],   // TL of object
+    b: rr.vertices[1],   // TR of object
+    mm: rr.widthMm,
     hidden: false,
-    dimOffset: -Math.round(h * 0.18 + 40)
+    dimOffset: -Math.round(rr.heightMm / state.mmPerPixel * 0.18 + 40)
   });
   setPhase('measure-idle');
 });
@@ -2352,17 +2387,16 @@ document.getElementById('rect-measure-height').addEventListener('click', () => {
   state.pendingRectProposal = null;
   if (!p) { setPhase('measure-idle'); return; }
 
-  const w = p.bbox.x2 - p.bbox.x1;
-  const h = p.bbox.y2 - p.bbox.y1;
+  const rr = p.rotatedRect;
   state.dimCounter++;
   state.dimensions.push({
     id: Date.now() + Math.random(),
     name: `H${state.dimCounter}`,
-    a: { x: p.bbox.x2, y: p.bbox.y1 },
-    b: { x: p.bbox.x2, y: p.bbox.y2 },
-    mm: h * state.mmPerPixel,
+    a: rr.vertices[1],   // TR of object
+    b: rr.vertices[2],   // BR of object
+    mm: rr.heightMm,
     hidden: false,
-    dimOffset: Math.round(w * 0.18 + 40)
+    dimOffset: Math.round(rr.widthMm / state.mmPerPixel * 0.18 + 40)
   });
   setPhase('measure-idle');
 });
@@ -2373,29 +2407,28 @@ document.getElementById('rect-measure-both').addEventListener('click', () => {
   state.pendingRectProposal = null;
   if (!p) { setPhase('measure-idle'); return; }
 
-  const w = p.bbox.x2 - p.bbox.x1;
-  const h = p.bbox.y2 - p.bbox.y1;
+  const rr = p.rotatedRect;
 
   state.dimCounter++;
   state.dimensions.push({
     id: Date.now() + Math.random(),
     name: `W${state.dimCounter}`,
-    a: { x: p.bbox.x1, y: p.bbox.y2 },
-    b: { x: p.bbox.x2, y: p.bbox.y2 },
-    mm: w * state.mmPerPixel,
+    a: rr.vertices[0],   // TL of object
+    b: rr.vertices[1],   // TR of object
+    mm: rr.widthMm,
     hidden: false,
-    dimOffset: -Math.round(h * 0.18 + 40)
+    dimOffset: -Math.round(rr.heightMm / state.mmPerPixel * 0.18 + 40)
   });
 
   state.dimCounter++;
   state.dimensions.push({
     id: Date.now() + Math.random(),
     name: `H${state.dimCounter}`,
-    a: { x: p.bbox.x2, y: p.bbox.y1 },
-    b: { x: p.bbox.x2, y: p.bbox.y2 },
-    mm: h * state.mmPerPixel,
+    a: rr.vertices[1],   // TR of object
+    b: rr.vertices[2],   // BR of object
+    mm: rr.heightMm,
     hidden: false,
-    dimOffset: Math.round(w * 0.18 + 40)
+    dimOffset: Math.round(rr.widthMm / state.mmPerPixel * 0.18 + 40)
   });
 
   setPhase('measure-idle');
@@ -2917,23 +2950,44 @@ function suggestDamageEndpointsInRect(x1, y1, x2, y2) {
 
     if (!bestContour) return null;
 
-    /* Extreme points of the contour — points actually ON the edge,
-       not a bounding box that overshoots rounded corners. */
-    const pts2 = bestContour.data32S;
-    const n2   = pts2.length / 2;
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (let i = 0; i < n2; i++) {
-      const px = pts2[i * 2], py = pts2[i * 2 + 1];
-      if (px < minX) minX = px;
-      if (py < minY) minY = py;
-      if (px > maxX) maxX = px;
-      if (py > maxY) maxY = py;
+    /* Minimum area rotated rectangle — gives correct width and
+       height along the object's own axes, regardless of rotation.
+       cv.minAreaRect returns { center, size, angle }. We compute
+       the 4 vertices from those values and offset them back from
+       ROI space to full-image space. */
+    const mar    = cv.minAreaRect(bestContour);
+    const cx_mar = mar.center.x + wx;
+    const cy_mar = mar.center.y + wy;
+    /* minAreaRect may return width < height or vice versa depending
+       on angle; we normalise so widthPx is always the longer side. */
+    let widthPx  = mar.size.width;
+    let heightPx = mar.size.height;
+    let angleDeg = mar.angle;
+    /* OpenCV convention: angle is in [-90, 0). If width < height,
+       the rectangle is considered rotated 90° and angle shifts.
+       We always want the "width" axis to be the longer one so that
+       W and H labels are consistent with visual expectation. */
+    if (widthPx < heightPx) {
+      [widthPx, heightPx] = [heightPx, widthPx];
+      angleDeg += 90;
     }
-    const bbox = {
-      x1: minX + wx,
-      y1: minY + wy,
-      x2: maxX + wx,
-      y2: maxY + wy
+    const angleRad = angleDeg * Math.PI / 180;
+    const cos = Math.cos(angleRad);
+    const sin = Math.sin(angleRad);
+    const hw = widthPx  / 2;
+    const hh = heightPx / 2;
+    /* 4 vertices of the rotated rectangle in full-image space,
+       in order: TL → TR → BR → BL (relative to the object's axes,
+       not the canvas axes). */
+    const rotatedRect = {
+      widthMm:  widthPx  * state.mmPerPixel,
+      heightMm: heightPx * state.mmPerPixel,
+      vertices: [
+        { x: cx_mar - hw * cos + hh * sin, y: cy_mar - hw * sin - hh * cos }, // TL
+        { x: cx_mar + hw * cos + hh * sin, y: cy_mar + hw * sin - hh * cos }, // TR
+        { x: cx_mar + hw * cos - hh * sin, y: cy_mar + hw * sin + hh * cos }, // BR
+        { x: cx_mar - hw * cos - hh * sin, y: cy_mar - hw * sin + hh * cos }  // BL
+      ]
     };
 
     /* Diameter search for the diagonal option */
@@ -2959,7 +3013,7 @@ function suggestDamageEndpointsInRect(x1, y1, x2, y2) {
     }
 
     return {
-      bbox,
+      rotatedRect,
       diagonal: (ptA && ptB) ? { a: ptA, b: ptB } : null
     };
 
@@ -3355,6 +3409,177 @@ function rectifyImageWithMarker(img, markerCorners, markerSizeMm) {
   }
 }
 
+/* ============================================================
+   MULTI-MARKER RECTIFICATION (Phase 16)
+   ============================================================
+   rectifyImageWithMultipleMarkers(img, markers) takes the photo
+   and an array of ≥2 detected marker objects (same structure as
+   returned by detectArucoMarker) and computes a robust homography
+   using ALL corners of ALL markers via cv.findHomography (least
+   squares). This is more accurate than a single-marker homography
+   because the larger point set constrains the transform better.
+
+   How the ideal (destination) points are built:
+   1. The scale is fixed by the marker with the most pixels per side
+      (same rule as phase 6 — more pixels = more precise).
+   2. The centroid of all marker centres is computed. This is the
+      "anchor" of the rectified image — the image stays visually
+      centred on the same region.
+   3. For each marker, its ideal centre position is computed by
+      taking its real distance from the global centroid (in mm,
+      using the global scale) and projecting it onto the image plane
+      as if seen orthogonally.
+   4. The four ideal corners of each marker are placed as a perfect
+      square around its ideal centre, with side = sizeMm / mmPerPx.
+
+   Memory: every cv.Mat created here is freed in finally{}, same
+   pattern as rectifyImageWithMarker. Throws on failure; caller
+   catches and falls back to single-marker flow.
+
+   Returns the same object shape as rectifyImageWithMarker so the
+   caller (applyAutoCalibration) needs no changes.
+   ============================================================ */
+function rectifyImageWithMultipleMarkers(img, markers) {
+  /* Scale: use the marker with the most pixels per side. */
+  const primary = markers.reduce((best, m) =>
+    m.avgSidePx > best.avgSidePx ? m : best
+  );
+  const mmPerPx = primary.sizeMm / primary.avgSidePx;
+
+  /* Global centroid: average of all marker centres in image space. */
+  const centres = markers.map(m => ({
+    x: (m.corners[0].x + m.corners[1].x + m.corners[2].x + m.corners[3].x) / 4,
+    y: (m.corners[0].y + m.corners[1].y + m.corners[2].y + m.corners[3].y) / 4
+  }));
+  const globalCx = centres.reduce((s, c) => s + c.x, 0) / centres.length;
+  const globalCy = centres.reduce((s, c) => s + c.y, 0) / centres.length;
+
+  /* For each marker: build 4 source points (detected corners,
+     reordered TL/TR/BR/BL) and 4 destination points (ideal square
+     centred on the marker's ideal position). */
+  const sortCornersCanonical = (corners) => {
+    const sums  = corners.map(c => c.x + c.y);
+    const diffs = corners.map(c => c.x - c.y);
+    const idxMin = (arr) => arr.indexOf(Math.min(...arr));
+    const idxMax = (arr) => arr.indexOf(Math.max(...arr));
+    return [
+      corners[idxMin(sums)],   // TL
+      corners[idxMax(diffs)],  // TR
+      corners[idxMax(sums)],   // BR
+      corners[idxMin(diffs)]   // BL
+    ];
+  };
+
+  const srcFlat = [];   // flat array for cv.matFromArray: [x0,y0, x1,y1, ...]
+  const dstFlat = [];
+  const primaryIdealCorners = null;   // filled below for the primary marker
+  let   primaryIdealResult  = null;
+
+  markers.forEach((m, idx) => {
+    const c    = sortCornersCanonical(m.corners);
+    const half = (m.sizeMm / mmPerPx) / 2;
+
+    /* Ideal centre: offset from global centroid by the detected
+       offset, scaled by mmPerPx so the geometry is preserved. */
+    const detectedOffsetX = centres[idx].x - globalCx;
+    const detectedOffsetY = centres[idx].y - globalCy;
+    const idealCx = globalCx + detectedOffsetX;
+    const idealCy = globalCy + detectedOffsetY;
+
+    /* Ideal corners as a perfect square (TL, TR, BR, BL). */
+    const ideal = [
+      { x: idealCx - half, y: idealCy - half }, // TL
+      { x: idealCx + half, y: idealCy - half }, // TR
+      { x: idealCx + half, y: idealCy + half }, // BR
+      { x: idealCx - half, y: idealCy + half }  // BL
+    ];
+
+    c.forEach((pt, i) => {
+      srcFlat.push(pt.x, pt.y);
+      dstFlat.push(ideal[i].x, ideal[i].y);
+    });
+
+    /* Save the ideal corners of the primary marker so we can
+       return markerCornersRectified (same contract as phase 6). */
+    if (m === primary) {
+      primaryIdealResult = ideal;
+    }
+  });
+
+  const nPts   = markers.length * 4;   // 4 corners per marker
+  const srcMat = cv.matFromArray(nPts, 1, cv.CV_32FC2, srcFlat);
+  const dstMat = cv.matFromArray(nPts, 1, cv.CV_32FC2, dstFlat);
+
+  const src       = cv.imread(img);
+  const dst       = new cv.Mat();
+  /* cv.findHomography: least-squares fit over all N point pairs.
+     Method 0 = standard least squares (no outlier rejection).
+     We don't use RANSAC here because all points come from
+     well-detected ArUco markers — there are no outliers. */
+  const M         = cv.findHomography(srcMat, dstMat, 0);
+  const dsize     = new cv.Size(img.naturalWidth, img.naturalHeight);
+  const fillBlack = new cv.Scalar(0, 0, 0, 255);
+
+  try {
+    /* Sanity check: map all source points through M and verify
+       each one lands within 2 px of its destination. The tolerance
+       is 2 px (vs 1 px in phase 6) because findHomography is a
+       least-squares fit — individual points don't land exactly on
+       their targets by design. */
+    const checkDst = new cv.Mat();
+    try {
+      cv.perspectiveTransform(srcMat, checkDst, M);
+      const out = checkDst.data32F;
+      let maxError = 0;
+      for (let i = 0; i < nPts; i++) {
+        const err = Math.hypot(
+          out[i * 2]     - dstFlat[i * 2],
+          out[i * 2 + 1] - dstFlat[i * 2 + 1]
+        );
+        if (err > maxError) maxError = err;
+      }
+      /* Threshold: if the least-squares fit leaves more than 2.0 px
+         of residual error on any point, the markers are likely on
+         different planes or have conflicting perspective. Fall back
+         to single-marker rectification, which is more accurate in
+         that scenario. */
+      if (maxError > 2.0) {
+        throw new Error(
+          `Multi-marker homography rejected: max point error = ` +
+          `${maxError.toFixed(2)} px exceeds 2.0 px limit. ` +
+          `Falling back to single-marker.`
+        );
+      }
+      console.log(`Multi-marker homography sanity OK (max point error = ` +
+                  `${maxError.toFixed(2)} px, ${nPts} points).`);
+    } finally {
+      checkDst.delete();
+    }
+
+    cv.warpPerspective(src, dst, M, dsize,
+                       cv.INTER_LINEAR, cv.BORDER_CONSTANT, fillBlack);
+
+    const outCanvas = document.createElement('canvas');
+    outCanvas.width  = img.naturalWidth;
+    outCanvas.height = img.naturalHeight;
+    cv.imshow(outCanvas, dst);
+
+    const homography = Array.from(M.data64F);
+
+    return {
+      image:                  outCanvas,
+      markerCornersRectified: primaryIdealResult,
+      mmPerPixelRectified:    mmPerPx,
+      homography
+    };
+  } finally {
+    srcMat.delete();
+    dstMat.delete();
+    src.delete();
+    dst.delete();
+    M.delete();
+  }
+}
 
 /* ============================================================
    TEST HELPER FOR RECTIFICATION — call from browser console

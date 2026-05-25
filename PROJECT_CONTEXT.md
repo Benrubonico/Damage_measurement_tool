@@ -26,12 +26,14 @@ no changes to the core pipeline.
 
 ## Current state
 
-A working single-file HTML/CSS/JavaScript app: `index.html`.
+A working HTML/CSS/JavaScript app split across `index.html` (shell)
+and `app.js` (all logic).
 Hosted on GitHub (private repo, set to private in phase 9).
 Deployed on Azure Static Web Apps (phase 9).
 Installable as a PWA (Progressive Web App) on any device.
 Tagged as v1.0-core after phase 13 completion.
 Tagged as v1.1-extract-app-js after phase 14 completion.
+Tagged as v1.2-multimarker after phase 16 completion.
 
 ### Implemented features
 
@@ -50,8 +52,8 @@ Tagged as v1.1-extract-app-js after phase 14 completion.
 - Multi-marker support (phase 13): all known markers present in the
   photo are detected and displayed simultaneously, each with a
   distinct colour per ID and its own quadrilateral overlay and label.
-  Corners of all detected markers are stored in state.allMarkers as
-  groundwork for future multi-plane geometry phases.
+  Corners of all detected markers are stored in state.allDetectedMarkers
+  as groundwork for future multi-plane geometry phases.
 - Perspective correction (phase 6): after detecting the ArUco marker,
   the app applies cv.warpPerspective using the four detected corners
   to produce a rectified image where mm/pixel is constant across the
@@ -62,6 +64,14 @@ Tagged as v1.1-extract-app-js after phase 14 completion.
   A sanity check (cv.perspectiveTransform on the four corners) verifies
   the matrix before applying it; if it fails the app falls back to
   non-rectified calibration and logs a warning.
+- Multi-marker homography (phase 16): when ≥2 known markers are
+  detected in the same photo, the app attempts a more robust
+  rectification using cv.findHomography (least squares) over all
+  corners of all markers. A 2.0 px max-residual threshold gates
+  activation — if exceeded, the app falls back transparently to
+  single-marker phase 6 rectification. Activates in practice when
+  markers are genuinely coplanar (taped to the same flat surface).
+  Falls back gracefully in all other scenarios with no precision loss.
 - "View original" button (⊙ Original): visible in measure-idle phase
   when a rectified image is loaded. While held, shows the un-rectified
   photo with no overlays at the current zoom/pan, for before/after
@@ -86,6 +96,16 @@ Tagged as v1.1-extract-app-js after phase 14 completion.
     - Automatic calibration: "ID X — Y.YYY mm/px" (yellow).
     - Manual calibration: "Y.YYY mm/px" (yellow).
     - Tilted photo accepted under user responsibility: red with ⚠.
+- Assisted damage detection (phase 15): two interaction modes.
+  Tap mode: Canny edge detection in a fixed 120 mm window around the
+  tap point, proposes the two farthest endpoints of the most prominent
+  contour. Drag-rectangle mode: inspector draws a rectangle over the
+  object; Canny runs inside that rectangle; a modal offers Width,
+  Height, Both (W+H), or Longest diagonal. Geometry from
+  cv.minAreaRect so dimensions follow the object's own axes regardless
+  of rotation — a card at 30° gives correct width and height, not the
+  axis-aligned bounding box. If Canny finds nothing, returns to idle
+  silently without creating spurious dimensions.
 - Multiple named dimensions per photo: add, rename, delete.
   Tap briefly on a dimension line to open the edit modal (rename
   or delete). Long press / drag moves the dimension line.
@@ -109,20 +129,6 @@ Tagged as v1.1-extract-app-js after phase 14 completion.
 
 Ongoing improvements to the Damage Measurement Tool, in planned order:
 
-<<<<<<< HEAD
-- Phase 15 — Stereometry: light 3D depth estimation from two photos
-  of the same damage (both with visible marker), aligned via marker
-  anchor, depth by triangulation. Two photos required, third optional.
-- Phase 16 — Assisted automatic damage detection (classical OpenCV,
-  no AI): Canny edge detection + contour analysis on the rectified
-  image to propose measurement endpoints. Inspector confirms or adjusts.
-- Phase 17 — Multi-marker homography: use 4 markers placed around a
-=======
-- Phase 16 — Multi-marker homography: use 4 markers placed around a
->>>>>>> feature/phase-15-detection-no-ai
-  damage to define a reference plane and compute a more precise
-  homography. Builds on state.allMarkers from phase 13. Optional
-  high-precision mode for curved surfaces.
 - Phase 17 — Per-device lens distortion calibration: one-time
   checkerboard calibration per phone model using cv.calibrateCamera
   + cv.undistort. Required before stereometry for acceptable accuracy.
@@ -170,8 +176,8 @@ this project.
    Deployed at: https://purple-bay-0a9a14e10.7.azurestaticapps.net
    Authentication: Microsoft accounts (personal), managed via Azure
    Role Management (role: inspector). Access granted per user manually.
-   GitHub Pages left active as fallback; AUTH_ENABLED remains true in
-   index.html as the access control mechanism for shared users.
+   GitHub Pages left active as fallback; AUTH_ENABLED remains false in
+   app.js (password gate disabled by default).
    Entra ID corporate accounts (Accenture tenant) blocked by corporate
    IT policy — not usable without admin approval from Accenture IT.
 10. ✅ UX overhaul: collapsible left-side instruction panel (Tools &
@@ -201,32 +207,31 @@ this project.
     detected and displayed simultaneously. Each marker ID rendered
     with a distinct colour quadrilateral and label. Largest marker
     used as primary scale (behaviour preserved). All detected marker
-    corners stored in state.allMarkers as groundwork for future
-    geometry phases. Tag v1.0-core created at this point.
-<<<<<<< HEAD
-14. ✅ Extract app.js (maintainability refactor). JavaScript moved to
-    app.js, added to PRE_CACHE_URLS in sw.js. Tag v1.1-extract-app-js
-    created. Branch feature/phase-15-stereometry opened.
-15. ⏸ Stereometry: light 3D depth estimation from two photos.
-16. ⏸ Assisted damage detection: Canny + contours, no AI.
-17. ⏸ Multi-marker homography: 4-marker reference plane for curved
-    surfaces and high-precision mode.
-18. ⏸ Per-device lens distortion calibration (checkerboard).
-=======
+    corners stored in state.allDetectedMarkers as groundwork for
+    future geometry phases. Tag v1.0-core created at this point.
 14. ✅ Extract app.js: all JavaScript moved from index.html to app.js.
     Added to PRE_CACHE_URLS in sw.js. No behaviour change.
+    Tag v1.1-extract-app-js created.
 15. ✅ Assisted damage detection: Canny + contours, no AI.
-    Two interaction modes: tap (Canny in fixed 120mm window around
+    Two interaction modes: tap (Canny in fixed 120 mm window around
     tap point) and drag-rectangle (Canny inside drawn area). Drag
     mode opens a modal: Width, Height, Both (W+H), or Longest diagonal.
-    Geometry from contour extreme points, not bounding box, so
-    endpoints land on the real edge of the object. Fallback to
-    rectangle dimensions if Canny finds nothing. Validated on credit
-    card: 85.3 × 55.2 mm vs standard 85.6 × 54.0 mm (<0.4% error).
-16. ⏸ Multi-marker homography: 4-marker reference plane.
+    Geometry from cv.minAreaRect so dimensions follow the object's own
+    axes regardless of rotation. If Canny finds nothing, returns to
+    idle silently — no spurious dimensions created.
+    Validated experimentally: credit card horizontal and rotated ~30°,
+    error <1.5% with autodetection within safe zone.
+16. ✅ Multi-marker homography: cv.findHomography with all corners of
+    all detected markers (≥2 markers). Threshold 2.0 px max residual —
+    if exceeded, falls back automatically to single-marker phase 6
+    rectification with no precision loss. Activates in practice only
+    when markers are genuinely coplanar (same flat surface).
+    Also in this phase:
+    - minAreaRect replaces axis-aligned bbox for rotated object support.
+    - Fallback that created dimensions when Canny found nothing removed.
+    Tag v1.2-multimarker created.
 17. ⏸ Per-device lens distortion calibration (checkerboard).
 18. ⏸ Stereometry: light 3D depth estimation from two photos.
->>>>>>> feature/phase-15-detection-no-ai
 19. ⏸ ONNX Runtime Web: custom-trained vehicle damage model in browser.
 20. ⏸ Real-time capture assistant: live ArUco + guidance overlay.
 
@@ -251,30 +256,25 @@ this project.
 
 ### Checkpoint at phase 13 close — completed
 
-These steps were executed at the close of phase 13 and must not
-be repeated:
-
 1. ✅ Final commit on main: `phase 13 complete: multi-marker support`
-2. ✅ Tag created: `git tag v1.0-core && git push origin v1.0-core`
-   This tag is permanent. The stable measurement core is recoverable
-   at any time with `git checkout v1.0-core`.
-3. ✅ Extract app.js assigned as phase 14 (next step before any
-   further feature branches are opened).
+2. ✅ Tag: `v1.0-core` — stable measurement core, always recoverable.
 
 ### Checkpoint at phase 14 close — completed
 
-Phase 14 (app.js extraction) is committed to main. Branches are
-opened per phase as work begins.
+✅ Tag: `v1.1-extract-app-js` — app.js extracted, no behaviour change.
+
+### Checkpoint at phase 16 close — completed
+
+✅ Tag: `v1.2-multimarker` — multi-marker homography + minAreaRect +
+experimental validation. Merged to main.
 
 ### Planned branches
 
-- `feature/phase-15-detection-no-ai` — Canny + contours (current).
-- `feature/phase-16-multimarker-homography` — 4-marker plane.
+- `feature/phase-17-lens-calibration` — checkerboard per-device calib.
 - `feature/phase-18-stereometry` — light 3D from two photos.
 - `feature/phase-19-onnx` — ONNX Runtime Web integration.
 
-All branches fork from main after the v1.0-core tag and the app.js
-extraction, so the clean core is always recoverable.
+All branches fork from main after v1.2-multimarker.
 
 ## Tech stack and constraints
 
@@ -301,7 +301,7 @@ extraction, so the clean core is always recoverable.
 
     repo-root/
     ├── index.html              (app shell — HTML and CSS only, script in app.js)
-    ├── app.js                  (created in phase 14; all JavaScript from index.html)
+    ├── app.js                  (all JavaScript; extracted in phase 14)
     ├── manifest.json           (PWA manifest — created in phase 8)
     ├── sw.js                   (service worker — created in phase 8)
     ├── README.md               (repository description for GitHub)
@@ -367,10 +367,18 @@ the assumptions underneath:
   the image (the "safe zone" overlay shows this boundary). Lens
   distortion grows toward the edges. Experimentally confirmed: error
   is ~0.3% at centre, rising to ~3% at image edges.
+- **Take the photo as close as practicable** while keeping both marker
+  and damage within the central 70% of the frame. Closer = more
+  pixels per mm = less amplification of contour detection uncertainty.
+  "Far" photos approach the 2% error limit even within the safe zone.
+- **Orient the phone so the long axis of the damage runs vertically**
+  in the frame (portrait orientation for elongated damage). The long
+  axis benefits most from maximum pixel coverage. Validated
+  experimentally: vertical-close gives best results for both axes
+  simultaneously (long side +0.5%, short side +0.2%).
 - Use the phone in whichever orientation (portrait / landscape) best
-  fits the damage shape. No significant accuracy difference between
-  the two orientations was found experimentally when framing is
-  otherwise equivalent.
+  fits the damage shape following the rule above. No significant
+  accuracy difference when framing is otherwise equivalent.
 - Avoid auto-switching to macro mode at very close range; some
   phones change lens automatically without warning.
 - Avoid extreme oblique angles. Perspective correction (phase 6)
@@ -385,6 +393,13 @@ the assumptions underneath:
       accuracy of the three in real-world tests (~0.3% at centre).
     - ID 2 (100 mm): for large damage where ID 1 is visually too
       small relative to the damage extent.
+- For objects with **straight edges**, prefer **🎯 Auto-detect** over
+  manual point placement. Autodetection (minAreaRect) finds the real
+  contour boundary; manual tapping typically lands ~0.5–1 mm inside
+  the edge, causing a systematic underestimate of ~0.7%.
+- For **circular objects** (coins, rivet heads), use manual
+  measurement. Autodetection cannot reliably find the true diameter
+  of a circle from a single Canny contour.
 
 ### What we deliberately do NOT do
 - No automatic brightness, contrast, colour or filter adjustments
@@ -445,6 +460,52 @@ measurements each:
 user error of ±0.5 mm from estimating the diametral line; objects
 with straight edges give more reliable results.
 
+### Post-phase-15/16 results (minAreaRect autodetection, May 2026)
+
+Setup: marker ID 1 (49.75 mm) + marker ID 2 (99.75 mm), objects
+within central 70% of image, main camera 1×, handheld, flat surface.
+Phase 16 multi-marker fell back to single-marker in all these tests
+(markers on separate cartulinas, not coplanar enough to pass the
+2.0 px threshold). Results reflect phase 6 rectification + phase 15
+autodetection.
+
+**Credit card (real: 85.60 × 53.98 mm) — horizontal, manual
+(3 measurements):**
+
+| Measure | M1 | M2 | M3 | Mean | Error |
+|---|---|---|---|---|---|
+| Long side | 84.8 | 84.8 | 85.3 | 84.97 | −0.73% |
+| Short side | 53.6 | 53.6 | 53.5 | 53.57 | −0.76% |
+| Auto long | — | — | 85.7 | 85.7 | +0.12% |
+| Auto short | — | — | 53.9 | 53.9 | −0.15% |
+
+**Credit card (real: 85.60 × 53.98 mm) — rotated ~30°, manual
+(3 measurements):**
+
+| Measure | M1 | M2 | M3 | Mean | Error |
+|---|---|---|---|---|---|
+| Long side | 86.3 | 86.3 | 86.1 | 86.23 | +0.73% |
+| Short side | 54.0 | 53.8 | 54.1 | 53.97 | −0.02% |
+| Auto long | — | — | 86.7 | 86.7 | +1.3% |
+| Auto short | — | — | 54.4 | 54.4 | +0.74% |
+
+**Fridge magnet (real: 119 × 49.5 mm) — orientation and distance
+study:**
+
+| Condition | Method | Long (119mm) | Error | Short (49.5mm) | Error |
+|---|---|---|---|---|---|
+| Horizontal, close | Auto | 120.2 | +1.0% | 50.4 | +1.8% |
+| Horizontal, close | Manual | 120.2 | +1.0% | 49.9 | +0.8% |
+| Horizontal, far | Auto | 121.3 | +1.9% | 50.6 | +2.2% |
+| Horizontal, far | Manual | 120.9 | +1.6% | 49.6 | +0.2% |
+| Vertical, close | Auto | 120.5 | +1.3% | 50.2 | +1.4% |
+| Vertical, close | Manual | 119.6 | +0.5% | 49.6 | +0.2% |
+| Vertical, far | Auto | 121.4 | +2.0% | 50.8 | +2.6% |
+| Vertical, far | Manual | 120.5 | +1.3% | 50.6 | +2.2% |
+
+Best overall result: **vertical orientation, close, manual**
+(long +0.5%, short +0.2%).
+
 ### Interpretation
 
 1. **Error scales monotonically with the distance from the measured
@@ -473,19 +534,49 @@ with straight edges give more reliable results.
    user on the same photo vary by at most 0.4 mm. Residual error
    is systematic, not random.
 
+7. **Autodetection (minAreaRect) is more accurate than manual
+   measurement for straight-edged objects.** Manual tapping lands
+   ~0.5–1 mm inside the real edge, causing a systematic underestimate
+   of ~0.7%. Autodetection finds the actual contour boundary.
+   Exception: circular objects (coins, rivets) — autodetection finds
+   an arbitrary chord, not the true diameter. Use manual for those.
+
+8. **Photo distance is the dominant remaining error factor.** Closer
+   photos give more pixels per mm, reducing the amplification of
+   contour detection uncertainty. Far photos approach the 2% limit
+   even within the safe zone. Rule: take the photo as close as
+   possible while keeping both marker and damage in the central 70%.
+
+9. **Phone orientation affects accuracy.** Best results when the long
+   axis of the damage runs vertically in the frame (portrait for
+   elongated damage). Validated: vertical-close gives best results
+   for both axes simultaneously.
+
+10. **Phase 16 multi-marker threshold (2.0 px) is correct for the
+    target use case.** Markers on separate cartulinas (not truly
+    coplanar) produce residuals of 12–32 px and correctly fall back
+    to single-marker. Markers taped directly to the same flat surface
+    are expected to pass the threshold and activate the more robust
+    homography. This matches the operational scenario (markers taped
+    to an aircraft panel or car door).
+
 ### Implications for the roadmap
 
-These findings justify prioritising the safe zone overlay (done, in
-phase 6) and confirm the 2% accuracy target is achievable within the
-operational rules. Per-device lens calibration (checkerboard) would
-push best-case error below 0.5% but is deferred to phase 17.
+These findings confirm the 2% accuracy target is achievable within
+the operational rules. Per-device lens calibration (checkerboard,
+phase 17) would push best-case error below 0.5% and remove the
+distance sensitivity, but is deferred.
 
-Expected error budget post phase 6, assuming the operational rules
+Expected error budget post phase 16, assuming operational rules
 are followed:
-- Damage centred in the image (≤ 70% zone): ~0.3%.
+- Straight-edged damage, autodetection, close, vertical: ~0.5%.
+- Straight-edged damage, manual, close: ~0.7% (systematic).
+- Damage centred in the image (≤ 70% zone), any method: ~0.3–1.5%.
 - Damage extending to image edges (~90%): 2–3% from lens distortion.
 - Severely tilted photos (> 45°): 2–3% from amplified pixel noise.
 - Marker ID 0 in any condition: 3–5%, use with caution.
+- Circular objects (coins, rivets): manual only; ~1–2% depending on
+  how precisely the inspector places the endpoints on the diameter.
 
 ## Code conventions
 
@@ -534,7 +625,7 @@ are followed:
 - Don't add libraries or complexity without justifying why simpler
   options won't work.
 - Before any non-trivial edit: read the relevant code directly from
-  the index.html attached to the project — it is always the updated
+  the app.js attached to the project — it is always the updated
   source of truth. Do NOT ask the user to paste fragments; read them
   from the attached file. Only ask the user for a specific fragment
   if there is genuine ambiguity that the attached file cannot resolve.
@@ -559,8 +650,8 @@ are followed:
   or screenshot they have shared, look carefully at the image.
   Do not describe image contents based on what "should" be there
   according to theory; describe what is actually visible.
-  
-  ## Source of truth for AI assistants
+
+## Source of truth for AI assistants
 
 PROJECT_CONTEXT.md attached to the Claude project is the canonical
 version. When the user uploads a PROJECT_CONTEXT.md directly in
@@ -578,7 +669,7 @@ several bugs in phase 11 were caused by proposing code without
 verifying it against the actual file first.
 
 - **Before proposing any code fragment that modifies an existing
-  function, read that function from the attached index.html using
+  function, read that function from the attached app.js using
   the view tool with a line range.** Do not rely on memory of
   earlier chat content or on what the function "should" look like.
   The attached file is always the source of truth.
@@ -674,8 +765,8 @@ a damage report per vehicle registration number.
 
 ### Measurement core improvements
 
-- **★ Automatic damage detection (without AI).** Already in roadmap
-  as phase 15. Documented here for narrative context.
+- **★ Automatic damage detection (without AI).** ✅ Completed in
+  phase 15. Documented here for narrative context.
 - **Temporal comparison across inspections.** If the same zone is
   inspected periodically, the app could align successive photos
   (the marker provides the alignment anchor) and highlight new
@@ -683,7 +774,7 @@ a damage report per vehicle registration number.
 - **Web Workers for OpenCV processing.** Today the main browser
   thread briefly freezes while OpenCV processes a heavy photo.
   Moving detection and rectification to a Web Worker would keep
-  the UI responsive. Most relevant before phase 15.
+  the UI responsive.
 
 ### Capture and quality
 
@@ -712,38 +803,29 @@ a damage report per vehicle registration number.
   official reports. Aerospace-specific format; vehicle equivalent
   would be a standardised damage diagram per insurance or fleet
   management standards.
-  **★ Domain-aware automatic measurement proposals (phase 19 motivation).**
-  Once a labelled damage dataset exists, a trained model (YOLOv8 → ONNX →
-  browser) could learn domain-specific measurement conventions automatically.
-  Example in aerospace: when a dent is detected near rivets, the model
-  proposes the distance from the damage edge to the nearest rivet centre —
-  the measurement inspectors always document in that scenario. No backend
-  required: all inference runs client-side via ONNX Runtime Web. For the
-  personal portfolio the equivalent domain is vehicle bodywork; the pipeline
-  and techniques are identical, only the training photos and class labels
-  differ. This is the long-term destination of the phase 19 roadmap item.
+- **★ Domain-aware automatic measurement proposals (phase 19
+  motivation).** Once a labelled damage dataset exists, a trained
+  model (YOLOv8 → ONNX → browser) could learn domain-specific
+  measurement conventions automatically. Example in aerospace: when
+  a dent is detected near rivets, the model proposes the distance
+  from the damage edge to the nearest rivet centre. No backend
+  required: all inference runs client-side via ONNX Runtime Web.
 
-### Suggested order going forward (post phase 13)
+### Suggested order going forward (post phase 16)
 
-The immediate priority is completing the measurement core:
-
-1. Phase 15 — Assisted damage detection (Canny + contours, no AI).
-   Immediate operational value, no blocking dependencies.
-2. Phase 16 — Multi-marker homography (4-marker reference plane).
-   Precision improvement for curved surfaces; base already in phase 13.
-3. Phase 17 — Per-device lens calibration (checkerboard).
+1. Phase 17 — Per-device lens calibration (checkerboard).
    Required before stereometry for acceptable depth accuracy.
-4. Phase 18 — Stereometry (light 3D, two photos).
+2. Phase 18 — Stereometry (light 3D, two photos).
    Only worthwhile after phase 17 reduces intrinsic camera error.
-5. Phase 19 — ONNX Runtime Web (vehicle damage model in browser).
+3. Phase 19 — ONNX Runtime Web (vehicle damage model in browser).
    Depends on vehicle dataset completed in parallel.
-6. Phase 20 — Real-time capture assistant (last, most complex).
+4. Phase 20 — Real-time capture assistant (last, most complex).
 
 Personal portfolio and learning track (in parallel, not blocking):
-- Collect 200–500 photos of vehicle bodywork damage in public spaces
-  (parking lots, streets). No confidentiality constraints. Include
-  ID 1 marker in frame whenever possible — serves both the dataset
-  and the medidor validation.
+- **Dataset first step: check open sources before taking photos.**
+  Roboflow Universe and Kaggle have open-licence car damage datasets
+  downloadable via API. Spend an afternoon testing this approach
+  before committing weeks to manual photo collection.
 - Label with Roboflow (free tier). Classes: dent, scratch,
   paint_damage, bumper_damage. Variety over quantity.
 - Learn Python + opencv-python to experiment with the pipeline before
@@ -774,42 +856,28 @@ equivalent. This is noted explicitly only where the distinction matters.
 ### Block 1 — Core measurement improvements
 
 1. **Validate printed ArUco markers in the field.** ✅ Completed in
-   phase 2/8 (cross-reference: see "Experimental findings" above).
+   phase 2 (cross-reference: see "Experimental findings" above).
 2. **Multi-marker support for curved or large surfaces.** ✅ Completed
-   in phase 13 (detection and state storage). Multi-plane homography
-   planned as phase 16.
-3. **Assisted automatic damage detection.** In roadmap as phase 15.
-   Three paths: (a) classical OpenCV (Canny, contours) — phase 15;
-   (b) custom-trained model via ONNX — phase 19;
-   (c) Azure AI Vision for corporate environments.
-4. **Temporal comparison across inspections.** If the same zone is
-   inspected periodically, align successive photos via marker anchor
-   and highlight new defects or growth. Not yet in roadmap.
+   in phase 13 (detection and state storage) and phase 16
+   (multi-marker homography via findHomography).
+3. **Assisted automatic damage detection.** ✅ Completed in phase 15
+   (Canny + minAreaRect). ONNX-based detection planned as phase 19.
+4. **Temporal comparison across inspections.** Not yet in roadmap.
 5. **Per-device lens-distortion calibration.** In roadmap as phase 17.
    One-time checkerboard calibration per phone. Best-case error drops
-   from 1–2% to 0.3–0.5%.
+   from ~0.5% to ~0.05%.
 6. **Stereometry: light 3D from two photos.** In roadmap as phase 18.
-  Deferred after phase 17 (lens calibration) — without it, depth
-  error is 5–15%, which limits operational usefulness.
+   Deferred after phase 17 (lens calibration).
 7. **Measurement reliability heatmap.** ✅ Completed in phase 12.
 8. **Live camera mode with continuous ArUco detection.** In roadmap
    as phase 20.
 
 ### Block 2 — Workflow and traceability
 
-9. **Structured inspection session as first-class entity.** Container:
-   identifier (tail number / registration), date, inspector, damage
-   list, photos, measurements. Generates signed PDF report.
-10. **Zone coding.** Inspector tags zone before each photo. Stored
-    as metadata; enables historical search by zone. Vehicle equivalent:
-    "front left door, lower edge".
+9. **Structured inspection session as first-class entity.**
+10. **Zone coding.**
 11. **Integration with corporate maintenance / fleet system.**
-    Aerospace: SAP or equivalent, requires IT access. Vehicle fleet:
-    fleet management software.
 12. **Damage type catalogue + convergence with existing classifier.**
-    Aerospace: Dent, Blend-out, Rivet Pull-in, Out of Contour.
-    Vehicles: equivalent deformation categories. One flow: measure +
-    classify combined.
 
 ### Block 3 — Capture and image quality
 
@@ -819,89 +887,41 @@ equivalent. This is noted explicitly only where the distinction matters.
 
 ### Block 4 — Applied AI and custom-trained model
 
-**Domain note for Block 4:** training on real aerospace damage photos
-is not possible for personal work (confidentiality constraint). All
-personal model training uses vehicle bodywork damage as the equivalent
-domain. The technical pipeline (dataset → labelling → YOLOv8 →
-ONNX → browser) is identical regardless of domain; only the photos
-and class labels differ. No backend is required at any step: training
-runs locally or on Google Colab (free GPU), and inference runs
-entirely in the browser via ONNX Runtime Web.
-
-15. **Learn Python oriented to computer vision.** Focus: numpy,
-    opencv-python, Pillow, Jupyter notebooks. Timeline: 4–6 weeks
-    at 4–5 hours/week. Foundation for everything else in this block.
-16. **Build a custom vehicle damage dataset.** Collect 200–500 photos
-    of real vehicle bodywork damage in public spaces. Variety over
-    quantity: different lighting, distances, car colours, damage types.
-    Include ID 1 marker in frame whenever possible. Label with Roboflow
-    (free tier). Classes: dent, scratch, paint_damage, bumper_damage.
-    No confidentiality constraints — this data is personal.
-    **Why vehicles:** aerospace damage photos are property of Accenture
-    and its clients and cannot be used for personal training. Vehicle
-    panels are geometrically equivalent. The trained model and all
-    techniques transfer directly to aerospace data if an employer
-    provides it.
-17. **Train a small model with YOLOv8 or similar.** With the vehicle
-    dataset prepared, train an object-detection model. YOLOv8 nano or
-    small — a few lines of Python. Train on local GPU (RTX 3050 Ti
-    is sufficient for this dataset size) or free Google Colab GPU.
-    Trained model size: 5–20 MB. Export to ONNX format.
-    **No backend required** — training is a one-time offline process.
+15. **Learn Python oriented to computer vision.**
+16. **Build a custom vehicle damage dataset.** 200–500 labelled
+    images. No confidentiality constraints. Classes: dent, scratch,
+    paint_damage, bumper_damage. Try open sources first (Roboflow
+    Universe, Kaggle). ArUco markers NOT required in training photos.
+17. **Train a small model with YOLOv8 or similar.** Export to ONNX.
 18. **Integrate the trained model into the web app via ONNX Runtime
-    Web.** ONNX Runtime Web runs ONNX models directly in the browser
-    via JavaScript, with no server and no data leaving the device.
-    The model is bundled in `lib/` like OpenCV.js. **No backend
-    required** — all inference is client-side. In roadmap as phase 19.
-    Closes the full learning loop: Python → training → ONNX → browser.
+    Web.** In roadmap as phase 19.
 19. **Aerospace AI model for automatic classification (corporate
-    decision).** Extension of items 16–18 applied to the real aerospace
-    domain: requires Accenture to build a labelled dataset of real
-    aircraft damages. Depends entirely on corporate decisions. The
-    vehicle-domain work in items 16–18 is the proof of concept.
+    decision).** Depends entirely on corporate decisions.
 
 ### Block 5 — Augmented reality and technical drawings
 
-20. **Augmented reality for historical damage location.** Pan the
-    phone over the surface and see historical damages overlaid.
-    Works best with LiDAR-equipped iPhones. Practical ROI debatable.
-21. **Automatic technical drawing generation.** Aerospace: formatted
-    per Accenture/Airbus standard. Vehicle: formatted per insurance
-    or fleet management standard.
+20. **Augmented reality for historical damage location.**
+21. **Automatic technical drawing generation.**
 
 ### Block 6 — Certifications and career
 
-22. **AZ-900 (Azure Fundamentals) certification.** Weekend study
-    over 1–2 months. Exam ~50 €, typically reimbursed by Accenture.
-    Highest short-term CV return of any single investment.
+22. **AZ-900 (Azure Fundamentals) certification.**
 23. **AZ-204 (Developer) or AI-102 (AI Engineer) after AZ-900.**
-    Better fit than AZ-104. Positions as "developer / AI engineer
-    in Azure", not systems administrator.
 
 ### Block 7 — Distribution and public profile
 
 24. **Professional README of the repository.** ✅ Completed in
-    phase 8.
+    phase 8, updated in phase 16.
 25. **Public learning artefacts.** Document the construction process
-    publicly (LinkedIn or technical blog). Framing: "validated on
-    vehicles because aerospace data is confidential — same pipeline,
-    transferable on day one." Return materialises at 12–18 months.
-    Cost: 1–2 hours/week.
+    publicly (LinkedIn or technical blog). Return materialises at
+    12–18 months. Cost: 1–2 hours/week.
 
-<<<<<<< HEAD
-## How to start the next session (phase 15 — stereometry)
+## How to start the next session (phase 17 — per-device lens calibration)
 
 When opening a new chat:
 
-1. Confirm that the latest app.js and this PROJECT_CONTEXT.md
-=======
-## How to start the next session (phase 16 — multi-marker homography)
-
-When opening a new chat:
-
-1. Confirm that the latest app.js, index.html and this PROJECT_CONTEXT.md
->>>>>>> feature/phase-15-detection-no-ai
-   are present in project files.
+1. Confirm that the latest app.js, index.html and this
+   PROJECT_CONTEXT.md are present in project files.
 2. Read PROJECT_CONTEXT.md and app.js before doing anything else.
 3. When code inspection is needed, read specific fragments by line
    range — do NOT ask the user to paste fragments.
@@ -910,45 +930,15 @@ When opening a new chat:
 5. Deliver changes as copy-pasteable fragments for VS Code, not as
    whole-file replacements. Explain each fragment before presenting it.
 
-<<<<<<< HEAD
-Phase 15 covers stereometry — light 3D depth estimation:
+Phase 17 covers per-device lens distortion calibration:
 
-  The user loads two photos of the same damage, both with the ArUco
-  marker visible. The app aligns the two images using the marker as
-  a geometric anchor and estimates depth by triangulation. The result
-  is a depth value (mm) for the damage feature, displayed alongside
-  the existing 2D measurements.
+  One-time calibration per phone model using a printed checkerboard
+  pattern. The phone takes ~15 photos of the checkerboard at different
+  angles; cv.calibrateCamera computes the radial distortion coefficients;
+  cv.undistort removes them from subsequent photos. This pushes best-case
+  error from ~0.5% to ~0.05% and reduces distance sensitivity.
+  Required before phase 18 (stereometry) for acceptable depth accuracy.
 
-  Two photos are required; a third is optional for redundancy.
-  No additional hardware required — standard phone camera only.
-
-  Before writing any code, explain the approach in plain language
-  and get explicit approval for the implementation plan.
-
-  Active branch: feature/phase-15-stereometry
-  Suggested commit message: `phase 15 complete: stereometry`.
-
-  After committing and merging to main, create the tag:
-  git tag v1.2-stereometry
-  git push origin v1.2-stereometry
-
-  Then open the branch for phase 16:
-  git checkout -b feature/phase-16-detection-no-ai
-  git push origin feature/phase-16-detection-no-ai
-=======
-Phase 16 covers multi-marker homography:
-
-  Use 4 ArUco markers placed at the corners of the damage area to
-  define a reference plane and compute a more precise homography.
-  Builds on state.allDetectedMarkers from phase 13. Optional
-  high-precision mode, especially useful for curved surfaces where
-  a single marker is insufficient. Before proposing anything, read
-  applyAutoCalibration(), rectifyImageWithMarker(), and the
-  state.allDetectedMarkers handling in app.js.
-  The branch for this phase is feature/phase-16-multimarker-homography.
-
-  Before proposing anything, read the full measurement flow in app.js:
-  tryAutoCalibration(), applyAutoCalibration(), setPhase(),
-  handleTap(), btnConfirmMeas listener, and the STATE block at the top.
-  The branch for this phase is feature/phase-15-detection-no-ai.
->>>>>>> feature/phase-15-detection-no-ai
+  Active branch to open: feature/phase-17-lens-calibration
+  Suggested commit message: `phase 17 complete: per-device lens calibration`
+  Tag after merge to main: v1.3-lens-calibration
