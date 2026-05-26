@@ -3758,7 +3758,7 @@ function rectifyImageWithMultipleMarkers(img, markers) {
       if (maxError > 15.0) {
         throw new Error(
           `Multi-marker homography rejected: max point error = ` +
-          `${maxError.toFixed(2)} px exceeds 2.0 px limit. ` +
+          `${maxError.toFixed(2)} px exceeds 15.0 px limit. ` +
           `Falling back to single-marker.`
         );
       }
