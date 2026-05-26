@@ -106,9 +106,9 @@
 const ARUCO_DICTIONARY = 'DICT_4X4_50';
 
 const ARUCO_MARKER_SIZES_MM = {
-  0:  14.75,   // small damage  (< 40 mm)
-  1:  49.75,   // medium damage (50–200 mm)
-  2:  99.75,   // large damage  (> 200 mm)
+  0:  14.75,   // small — not in use, pending reprint at 30 mm
+  1:  49.874,  // medium damage (50–200 mm)
+  2:  99.874,  // large damage  (> 200 mm)
 };
 
 /* ============================================================
