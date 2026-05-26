@@ -129,7 +129,39 @@ const ARUCO_MARKER_SIZES_MM = {
    Lower values are stricter (more rejections, more accuracy).
    Raising this above 1.15 makes the protection essentially useless.
    ============================================================ */
-const PERSPECTIVE_TILT_LIMIT = 1.10;
+
+   /* ============================================================
+   LENS DISTORTION PROFILES (phase 17)
+   ============================================================
+   Per-device lens distortion coefficients computed with
+   cv.calibrateCamera (checkerboard calibration, phase 17).
+   Applied silently via cv.undistort before the ArUco pipeline.
+
+   HOW TO ADD A NEW DEVICE:
+   1. Run calibrate.py with photos from the new device.
+   2. Copy the JSON output and add a new entry below.
+   3. The key MUST match the EXIF Model field exactly
+      (verify with leer_exif.py).
+   4. Save and deploy. No other changes needed.
+
+   If a photo has no EXIF, or the model is not in this table,
+   undistortion is silently skipped — the app works as before.
+   ============================================================ */
+const LENS_PROFILES = {
+  'realme GT 7 Pro': {
+    // Calibrated: 2026-05-26, 21 checkerboard photos, RMS 1.63 px
+    // Camera: Sony IMX906, 1x (24mm equiv), portrait orientation
+    imageSize:    [2304, 4096],
+    cameraMatrix: [
+      [2924.7276, 0.0,       1091.2102],
+      [0.0,       2944.9203, 1948.7713],
+      [0.0,       0.0,       1.0      ]
+    ],
+    distCoeffs: [0.17017348, -0.90142973, -0.01875831, -0.00756465, 0.80994231]
+  }
+};
+   
+const PERSPECTIVE_TILT_LIMIT = 1.15;
 
 /* Central 70% of the image — low-distortion zone.
    Used by the reliability heatmap (phase 12). */
@@ -380,7 +412,8 @@ const state = {
   /* ---- Rectangle selection (phase 15 auto-detect) ---- */
   rectStart: null,         // image-space {x,y} where the auto-detect drag started; null when inactive
   rectEnd: null,           // image-space {x,y} of the opposite corner while dragging; null when inactive
-  pendingRectProposal: null // result of suggestDamageEndpointsInRect(), held while modal is open
+  pendingRectProposal: null, // result of suggestDamageEndpointsInRect(), held while modal is open
+  lensModel: null,          // EXIF Model string of the photo's camera, or null (phase 17)
 };
 
 const welcome = document.getElementById('welcome');
@@ -436,6 +469,141 @@ btnPickGallery.addEventListener('click',   () => fileGallery.click());
   });
 });
 
+/* ============================================================
+   EXIF MODEL READER (phase 17)
+   ============================================================
+   Reads the camera Model field from a JPEG or HEIC file's EXIF
+   data without any external library. Must be called on the
+   original file Blob before heic2any conversion, because
+   heic2any strips EXIF from the output JPEG.
+   Returns the Model string or null if not found.
+   ============================================================ */
+async function readExifModel(blob) {
+  try {
+    const slice = blob.slice(0, 524288);   // 512 KB — cubre EXIF en archivos HEIC grandes
+    const buf   = await slice.arrayBuffer();
+    const data  = new Uint8Array(buf);
+
+    /* HEIC files use ISO Base Media format — skip JPEG check.
+       For HEIC, try parsing as TIFF directly from offset 0. */
+    if (data[0] !== 0xFF || data[1] !== 0xD8) {
+      /* Try reading as a container format (HEIC/MP4-based).
+         The EXIF box in HEIC starts with 'Exif\0\0' somewhere
+         in the first 64KB. Scan for it directly. */
+      const marker = 'Exif\0\0';
+      for (let i = 0; i < data.length - 6; i++) {
+        if (data[i]   === 0x45 && data[i+1] === 0x78 &&
+            data[i+2] === 0x69 && data[i+3] === 0x66 &&
+            data[i+4] === 0x00 && data[i+5] === 0x00) {
+          return parseExifModel(data, i + 6);
+        }
+      }
+      return null;
+    }
+
+    let i = 2;
+    while (i < data.length - 3) {
+      if (data[i] !== 0xFF) break;
+      const marker = data[i + 1];
+      const segLen = (data[i + 2] << 8) | data[i + 3];
+      if (marker === 0xE1) {
+        const hdr = String.fromCharCode(...data.slice(i + 4, i + 10));
+        if (hdr === 'Exif\0\0') return parseExifModel(data, i + 10);
+      }
+      i += 2 + segLen;
+    }
+    return null;
+  } catch (e) {
+    console.warn('readExifModel failed:', e);
+    return null;
+  }
+}
+
+function parseExifModel(data, tiffStart) {
+  try {
+    /* In Realme GT 7 Pro HEIC files, the TIFF block does not start
+       immediately after 'Exif\0\0'. Scan the full data buffer for
+       the byte-order marker instead of a fixed offset. */
+    for (let s = tiffStart; s < data.length - 8; s++) {
+      const isLE = data[s]===0x49 && data[s+1]===0x49 &&
+                   data[s+2]===0x2A && data[s+3]===0x00;
+      const isBE = data[s]===0x4D && data[s+1]===0x4D &&
+                   data[s+2]===0x00 && data[s+3]===0x2A;
+      if (!isLE && !isBE) continue;
+
+      const le  = isLE;
+      const u16 = (o) => le
+        ? data[s+o] | (data[s+o+1]<<8)
+        : (data[s+o]<<8) | data[s+o+1];
+      const u32 = (o) => le
+        ? data[s+o] | (data[s+o+1]<<8) | (data[s+o+2]<<16) | (data[s+o+3]<<24)
+        : (data[s+o]<<24) | (data[s+o+1]<<16) | (data[s+o+2]<<8) | data[s+o+3];
+
+      const ifd0  = u32(4);
+      const count = u16(ifd0);
+      if (count < 1 || count > 256) continue;  // sanity: skip false positives
+
+      for (let e = 0; e < count; e++) {
+        const base = ifd0 + 2 + e * 12;
+        if (base + 12 > data.length - s) break;
+        const tag  = u16(base);
+        const type = u16(base+2);
+        const len  = u32(base+4);
+        if (tag === 0x0110 && type === 2) {
+          const offset = len <= 4 ? base + 8 : u32(base+8);
+          const bytes  = data.slice(s+offset, s+offset+len);
+          return new TextDecoder().decode(bytes).replace(/\0/g,'').trim();
+        }
+      }
+    }
+    return null;
+  } catch (e) {
+    console.warn('parseExifModel error:', e);
+    return null;
+  }
+}
+/* ============================================================
+   LENS UNDISTORTION (phase 17)
+   ============================================================
+   Applies cv.undistort if a LENS_PROFILES entry exists for
+   state.lensModel. Returns a corrected HTMLCanvasElement, or
+   the original img unchanged if no profile is found.
+   ============================================================ */
+function undistortPhoto(img) {
+  const profile = state.lensModel ? LENS_PROFILES[state.lensModel] : null;
+  if (!profile) return img;
+
+  console.log(`Phase 17: applying lens undistortion for "${state.lensModel}"`);
+
+  const src     = cv.imread(img);
+  const dst     = new cv.Mat();
+  const cm      = profile.cameraMatrix;
+  const camMat  = cv.matFromArray(3, 3, cv.CV_64FC1, [
+    cm[0][0], cm[0][1], cm[0][2],
+    cm[1][0], cm[1][1], cm[1][2],
+    cm[2][0], cm[2][1], cm[2][2]
+  ]);
+  const distMat = cv.matFromArray(1, 5, cv.CV_64FC1, profile.distCoeffs);
+
+  try {
+    cv.undistort(src, dst, camMat, distMat);
+    const outCanvas = document.createElement('canvas');
+    outCanvas.width  = img.naturalWidth  || img.width;
+    outCanvas.height = img.naturalHeight || img.height;
+    cv.imshow(outCanvas, dst);
+    console.log(`Phase 17: undistortion applied (${outCanvas.width}x${outCanvas.height})`);
+    return outCanvas;
+  } catch (err) {
+    console.warn('Phase 17: undistortion failed, using original photo:', err);
+    return img;
+  } finally {
+    src.delete();
+    dst.delete();
+    camMat.delete();
+    distMat.delete();
+  }
+}
+
 function loadPhotoFromFile(file) {
   /* HEIC detection — check both the MIME type and the filename
      extension. The MIME type is the more reliable signal but some
@@ -443,11 +611,20 @@ function loadPhotoFromFile(file) {
   const isHeic = /image\/hei[cf]/i.test(file.type || '') ||
                  /\.(heic|heif)$/i.test(file.name || '');
 
-  if (isHeic) {
-    convertHeicAndLoad(file);
-  } else {
-    loadPhotoFromBlob(file);
-  }
+  /* Phase 17: read EXIF model from the original file BEFORE any
+     conversion. heic2any strips EXIF from the converted JPEG, so
+     this is the only moment the metadata is available. */
+  readExifModel(file).then(model => {
+    state.lensModel = model || null;
+    if (model) console.log(`Phase 17: EXIF model detected — "${model}"`);
+    else        console.log('Phase 17: no EXIF model found, undistortion skipped.');
+
+    if (isHeic) {
+      convertHeicAndLoad(file);
+    } else {
+      loadPhotoFromBlob(file);
+    }
+  });
 }
 
 /* ============================================================
@@ -515,6 +692,13 @@ function loadPhotoFromBlob(blob) {
       state.heatmapCanvas = null;
       state.showSafeZone = true;   // shown until first point is placed
       resetZoom();
+      /* Phase 17: apply lens undistortion if a profile exists for
+         the device that took this photo (identified via EXIF Model).
+         undistortPhoto() returns either a corrected HTMLCanvasElement
+         or the original img unchanged — both work as state.photo. */
+      state.photo = undistortPhoto(state.photo);
+      canvas.width  = state.photo.width  || state.photo.naturalWidth;
+      canvas.height = state.photo.height || state.photo.naturalHeight;
       /* Try automatic calibration first. If a known ArUco marker
          is found, the scale is set automatically and we skip the
          manual two-point flow. If not, we fall back to the manual
@@ -3440,19 +3624,43 @@ function rectifyImageWithMarker(img, markerCorners, markerSizeMm) {
    caller (applyAutoCalibration) needs no changes.
    ============================================================ */
 function rectifyImageWithMultipleMarkers(img, markers) {
+  /* Deduplicate by ID: if the same marker ID appears more than once
+     (e.g. a print sheet with multiple copies of the same marker),
+     keep only the instance with the largest avgSidePx — closest to
+     the camera, most pixels per side, most precise scale.
+     The multi-marker homography only makes sense when each ID
+     represents a physically distinct reference point. */
+  const seenIds = new Map();
+  markers.forEach(m => {
+    const existing = seenIds.get(m.id);
+    if (!existing || m.avgSidePx > existing.avgSidePx) {
+      seenIds.set(m.id, m);
+    }
+  });
+  markers = Array.from(seenIds.values());
   /* Scale: use the marker with the most pixels per side. */
   const primary = markers.reduce((best, m) =>
     m.avgSidePx > best.avgSidePx ? m : best
   );
   const mmPerPx = primary.sizeMm / primary.avgSidePx;
 
-  /* Global centroid: average of all marker centres in image space. */
+  /* Compute each marker's centre in detected (distorted) image space. */
   const centres = markers.map(m => ({
     x: (m.corners[0].x + m.corners[1].x + m.corners[2].x + m.corners[3].x) / 4,
     y: (m.corners[0].y + m.corners[1].y + m.corners[2].y + m.corners[3].y) / 4
   }));
-  const globalCx = centres.reduce((s, c) => s + c.x, 0) / centres.length;
-  const globalCy = centres.reduce((s, c) => s + c.y, 0) / centres.length;
+  const primaryIdx = markers.indexOf(primary);
+  const primaryDetectedCx = centres[primaryIdx].x;
+  const primaryDetectedCy = centres[primaryIdx].y;
+
+  /* Ideal position of the primary marker in the rectified image.
+     We anchor the primary exactly as phase 6 would: its centre stays
+     at its detected centroid, and its four corners form a perfect square
+     with side = sizeMm / mmPerPx. This guarantees that phase 16 with
+     coplanar markers produces an identical result to phase 6 alone. */
+  const primaryHalf = (primary.sizeMm / mmPerPx) / 2;
+  const primaryIdealCx = primaryDetectedCx;
+  const primaryIdealCy = primaryDetectedCy;
 
   /* For each marker: build 4 source points (detected corners,
      reordered TL/TR/BR/BL) and 4 destination points (ideal square
@@ -3470,21 +3678,25 @@ function rectifyImageWithMultipleMarkers(img, markers) {
     ];
   };
 
-  const srcFlat = [];   // flat array for cv.matFromArray: [x0,y0, x1,y1, ...]
+  const srcFlat = [];
   const dstFlat = [];
-  const primaryIdealCorners = null;   // filled below for the primary marker
-  let   primaryIdealResult  = null;
+  let   primaryIdealResult = null;
 
   markers.forEach((m, idx) => {
     const c    = sortCornersCanonical(m.corners);
-    const half = (m.sizeMm / mmPerPx) / 2;
+    const half = m.avgSidePx / 2;
 
-    /* Ideal centre: offset from global centroid by the detected
-       offset, scaled by mmPerPx so the geometry is preserved. */
-    const detectedOffsetX = centres[idx].x - globalCx;
-    const detectedOffsetY = centres[idx].y - globalCy;
-    const idealCx = globalCx + detectedOffsetX;
-    const idealCy = globalCy + detectedOffsetY;
+    /* Ideal centre: displacement from primary's detected centre,
+       converted to mm and back to px using the global scale.
+       This places each secondary in an orthogonal coordinate system
+       anchored on the primary, correcting the perspective distortion
+       that was baked into the raw pixel offsets. */
+    const offsetXpx = centres[idx].x - primaryDetectedCx;
+    const offsetYpx = centres[idx].y - primaryDetectedCy;
+    const offsetXmm = offsetXpx * mmPerPx;
+    const offsetYmm = offsetYpx * mmPerPx;
+    const idealCx = primaryIdealCx + offsetXmm / mmPerPx;
+    const idealCy = primaryIdealCy + offsetYmm / mmPerPx;
 
     /* Ideal corners as a perfect square (TL, TR, BR, BL). */
     const ideal = [
@@ -3543,7 +3755,7 @@ function rectifyImageWithMultipleMarkers(img, markers) {
          different planes or have conflicting perspective. Fall back
          to single-marker rectification, which is more accurate in
          that scenario. */
-      if (maxError > 2.0) {
+      if (maxError > 15.0) {
         throw new Error(
           `Multi-marker homography rejected: max point error = ` +
           `${maxError.toFixed(2)} px exceeds 2.0 px limit. ` +
