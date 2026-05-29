@@ -2983,10 +2983,7 @@ function updateStereoStatusLine() {
   const actionDiv = document.getElementById('stereo-action-buttons');
   if (n >= 2) {
     actionDiv.style.display = 'flex';
-    /* Hide "add another" when at max */
-    document.getElementById('btn-stereo-add-photo').style.display =
-      n < STEREO_MAX_PHOTOS ? 'block' : 'none';
-  } else {
+      } else {
     actionDiv.style.display = 'none';
   }
 }
@@ -3087,13 +3084,6 @@ function loadImageFromBlob(blob) {
   });
 }
 
-/* ---------- "Add another photo" button ---------- */
-document.getElementById('btn-stereo-add-photo').addEventListener('click', () => {
-  /* renderStereoSlots already added the next slot card — just scroll to it */
-  const area = document.getElementById('stereo-step-area');
-  area.lastElementChild && area.lastElementChild.scrollIntoView({ behavior: 'smooth' });
-});
-
 /* ---------- baseline estimation ---------- */
 /* Estimates the lateral displacement between two camera positions
    by comparing the centres of their respective detected markers.
@@ -3174,43 +3164,7 @@ function triangulateDepthPair(photoA, photoB) {
   const matches = new cv.DMatchVector();
 
   try {
-    cv.cvtColor(srcA, grayA, cv.COLOR_RGBA2GRAY);
-    cv.cvtColor(srcB, grayB, cv.COLOR_RGBA2GRAY);
-
-    /* ORB detector — 500 features, default parameters */
-    const orb = new cv.ORB(500);
-    const mask = new cv.Mat();
-    orb.detectAndCompute(grayA, mask, kpA, descA);
-    orb.detectAndCompute(grayB, mask, kpB, descB);
-    orb.delete();
-    mask.delete();
-
-    if (kpA.size() < 8 || kpB.size() < 8) {
-      console.warn('Stereo: too few keypoints for matching.');
-      return null;
-    }
-
-    /* Brute-force Hamming matcher for ORB binary descriptors */
-    const bf = new cv.BFMatcher(cv.NORM_HAMMING, true);
-    bf.match(descA, descB, matches);
-    bf.delete();
-
-    if (matches.size() < 4) {
-      console.warn('Stereo: too few matches.');
-      return null;
-    }
-
-    /* Filter to best 30% of matches by distance */
-    const allMatches = [];
-    for (let i = 0; i < matches.size(); i++) {
-      allMatches.push({ dist: matches.get(i).distance,
-                        qIdx: matches.get(i).queryIdx,
-                        tIdx: matches.get(i).trainIdx });
-    }
-    allMatches.sort((a, b) => a.dist - b.dist);
-    const good = allMatches.slice(0, Math.max(8, Math.floor(allMatches.length * 0.3)));
-
-    /* Estimate baseline in pixels from the marker centre shift */
+    /* Baseline in mm from marker centre shift */
     const cxA = (photoA.marker.corners[0].x + photoA.marker.corners[1].x +
                  photoA.marker.corners[2].x + photoA.marker.corners[3].x) / 4;
     const cyA = (photoA.marker.corners[0].y + photoA.marker.corners[1].y +
@@ -3219,10 +3173,12 @@ function triangulateDepthPair(photoA, photoB) {
                  photoB.marker.corners[2].x + photoB.marker.corners[3].x) / 4;
     const cyB = (photoB.marker.corners[0].y + photoB.marker.corners[1].y +
                  photoB.marker.corners[2].y + photoB.marker.corners[3].y) / 4;
-    const baselinePx = Math.hypot(cxB - cxA, cyB - cyA);
 
-    if (baselinePx < 1) {
-      console.warn('Stereo: baseline too small in pixels.');
+    const baselinePx = Math.hypot(cxB - cxA, cyB - cyA);
+    const baselineMm = baselinePx * photoA.marker.mmPerPixel;
+
+    if (baselineMm < 1) {
+      console.warn('Stereo: baseline too small.');
       return null;
     }
 
@@ -3232,41 +3188,106 @@ function triangulateDepthPair(photoA, photoB) {
       ? (profile.cameraMatrix[0][0] + profile.cameraMatrix[1][1]) / 2
       : 3500;
 
-    /* For each good match, compute disparity = horizontal shift
-       between matched points. Depth Z = focal * baseline / disparity.
-       We measure Z relative to the marker plane (Z_marker).
-       Z_marker = focal * baselinePx / markerDisparity, where
-       markerDisparity ≈ baselinePx (marker centre shifts by the
-       full baseline when the surface is flat). */
-    const markerDisparity = baselinePx;
-    const zMarker = focalPx * baselinePx / markerDisparity;  // = focalPx
+    /* Camera-to-surface distance from marker apparent size */
+    const distanceMm = estimateCameraDistance(photoA.marker);
 
+    /* Direction of camera movement in image coordinates (unit vector) */
+    const moveDx = baselinePx > 0 ? (cxB - cxA) / baselinePx : 1;
+    const moveDy = baselinePx > 0 ? (cyB - cyA) / baselinePx : 0;
+
+    /* ORB matching to find point correspondences */
+    cv.cvtColor(srcA, grayA, cv.COLOR_RGBA2GRAY);
+    cv.cvtColor(srcB, grayB, cv.COLOR_RGBA2GRAY);
+
+    const orb = new cv.ORB(500);
+    const mask = new cv.Mat();
+    orb.detectAndCompute(grayA, mask, kpA, descA);
+    orb.detectAndCompute(grayB, mask, kpB, descB);
+    orb.delete();
+    mask.delete();
+
+    if (kpA.size() < 8 || kpB.size() < 8) {
+      console.warn('Stereo: too few keypoints.');
+      return null;
+    }
+
+    const bf = new cv.BFMatcher(cv.NORM_HAMMING, true);
+    bf.match(descA, descB, matches);
+    bf.delete();
+
+    if (matches.size() < 4) {
+      console.warn('Stereo: too few matches.');
+      return null;
+    }
+
+    /* Keep best 30% of matches by descriptor distance */
+    const allMatches = [];
+    for (let i = 0; i < matches.size(); i++) {
+      allMatches.push({
+        dist: matches.get(i).distance,
+        qIdx: matches.get(i).queryIdx,
+        tIdx: matches.get(i).trainIdx
+      });
+    }
+    allMatches.sort((a, b) => a.dist - b.dist);
+    const good = allMatches.slice(0, Math.max(8, Math.floor(allMatches.length * 0.3)));
+
+    /* For each match, project the pixel shift onto the camera
+       movement direction — not just horizontal component. */
     const depthSamples = [];
 
     good.forEach(m => {
       const ptA = kpA.get(m.qIdx).pt;
       const ptB = kpB.get(m.tIdx).pt;
-      const disparity = ptA.x - ptB.x;   // horizontal disparity
-      if (Math.abs(disparity) < 0.5) return;   // skip near-zero disparity
 
+      /* Disparity = component of pixel shift along movement axis */
+      const shiftX = ptA.x - ptB.x;
+      const shiftY = ptA.y - ptB.y;
+      const disparity = shiftX * moveDx + shiftY * moveDy;
+
+      /* Skip near-zero disparity to avoid blow-ups */
+      if (Math.abs(disparity) < baselinePx * 0.01) return;
+
+      /* Z = focal * baseline_px / disparity */
       const z = focalPx * baselinePx / disparity;
-      const deltaZ = z - zMarker;   // depth relative to marker plane
+
+      /* Reference Z: marker plane = focalPx */
+      const zMarker = focalPx;
+
+      /* Delta from marker plane, converted to mm */
+      const deltaZ = ((z - zMarker) / focalPx) * distanceMm;
+
+      /* Discard physically impossible values */
+      if (Math.abs(deltaZ) > distanceMm * 0.30) return;
+
       depthSamples.push(deltaZ);
     });
 
+    console.log('=== STEREO DEBUG ===');
+    console.log('baselineMm:', baselineMm.toFixed(1));
+    console.log('distanceMm:', distanceMm.toFixed(1));
+    console.log('focalPx:', focalPx.toFixed(1));
+    console.log('good matches:', good.length);
+    console.log('valid depth samples:', depthSamples.length);
+    if (depthSamples.length > 0) {
+      console.log('top 5 deltaZ (mm):', depthSamples
+        .slice().sort((a, b) => Math.abs(b) - Math.abs(a))
+        .slice(0, 5).map(d => d.toFixed(2)));
+    }
+
+console.log('ALL disparities:', good.map(m => {
+      const ptA = kpA.get(m.qIdx).pt;
+      const ptB = kpB.get(m.tIdx).pt;
+      const shiftX = ptA.x - ptB.x;
+      const shiftY = ptA.y - ptB.y;
+      return (shiftX * moveDx + shiftY * moveDy).toFixed(2);
+    }));
+
     if (depthSamples.length === 0) return null;
 
-    /* Find the sample with the largest absolute value (deepest point) */
+    /* Return the sample with the largest absolute depth */
     depthSamples.sort((a, b) => Math.abs(b) - Math.abs(a));
-    const maxDeltaZpx = depthSamples[0];
-
-    /* Convert from pixels to mm using the marker scale */
-    const mmPerPx = (photoA.marker.mmPerPixel + photoB.marker.mmPerPixel) / 2;
-    /* Depth in Z is in the same "pixel" space as the focal length.
-       We convert using the angular scale at the marker distance:
-       1 px in image ≈ mmPerPx mm on the surface, so 1 px in Z ≈
-       mmPerPx mm of real depth at the same distance. */
-    return maxDeltaZpx * mmPerPx;
+    return depthSamples[0];
 
   } catch (err) {
     console.warn('Stereo triangulation failed:', err);
