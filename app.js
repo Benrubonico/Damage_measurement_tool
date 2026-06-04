@@ -149,17 +149,16 @@ const ARUCO_MARKER_SIZES_MM = {
    ============================================================ */
 const LENS_PROFILES = {
   'realme GT 7 Pro': {
-    // Calibrated: 2026-05-19, 21 checkerboard photos, RMS 1.63 px
+    // Calibrated: 2026-06-04, 14 checkerboard photos, RMS 0.5617 px
     // Camera: Sony IMX906, 1x (24mm equiv), portrait orientation
-    // NOTE: reverted to this known-good calibration — newer calibration
-    // had pathological k3=2.84 causing image destruction at edges.
+    // Flags: CALIB_FIX_K3 | CALIB_FIX_K4 | CALIB_FIX_K5 — k3 fixed to 0, no overfitting
     imageSize:    [2304, 4096],
     cameraMatrix: [
-      [2853.4809, 0.0,       1152.0],
-      [0.0,       2861.1012, 2048.0],
-      [0.0,       0.0,       1.0   ]
+      [2909.8974, 0.0,       1112.8302],
+      [0.0,       2927.3153, 2043.2394],
+      [0.0,       0.0,       1.0      ]
     ],
-    distCoeffs: [0.0, 0.0, 0.0, 0.0, 0.0]
+    distCoeffs: [0.19135971, -0.80445332, -0.003869, -0.00160775, 0.0]
   }
 };
    
