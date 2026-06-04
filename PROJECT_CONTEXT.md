@@ -159,8 +159,10 @@ Tag v1.3-lens-calibration pending after phase 17 commit.
   the ArUco pipeline. If the device is not in LENS_PROFILES, the
   app works exactly as before — no degradation.
   Currently calibrated devices:
-    - Realme GT 7 Pro: RMS 1.63 px, 21 checkerboard photos,
+    - Realme GT 7 Pro: RMS 0.56 px, 14 checkerboard photos,
       Sony IMX906, 1x lens (24mm equiv), portrait orientation.
+      Recalibrated 2026-06-04 with CALIB_FIX_K3|K4|K5 flags
+      to prevent k3 overfitting. k3 fixed to 0.0.
   EXIF reading works for JPEG files and for HEIC files from the
   Realme GT 7 Pro. The parser scans for the byte-order marker
   (II/MM) rather than assuming a fixed offset after Exif\0\0,
@@ -324,7 +326,8 @@ this project.
     readExifModel() reads camera Model from JPEG/HEIC EXIF before
     heic2any conversion. undistortPhoto() applies cv.undistort
     silently if a profile exists. Falls back transparently if not.
-    Realme GT 7 Pro calibrated: RMS 1.63 px, 21 photos.
+    Realme GT 7 Pro calibrated: RMS 0.56 px, 14 photos.
+    Recalibrated 2026-06-04 with CALIB_FIX_K3|K4|K5 flags.
     EXIF parser uses byte-order-marker scan (robust to Android padding).
     Branch: feature/phase-17-lens-calibration.
     Commit: phase 17 complete: per-device lens calibration.
@@ -369,7 +372,8 @@ experimental validation. Merged to main.
 ### Checkpoint at phase 17 close — pending
 
 ✅ Tag: `v1.3-lens-calibration` — per-device lens undistortion,
-Realme GT 7 Pro calibrated, EXIF reader for JPEG and HEIC.
+Realme GT 7 Pro calibrated (recalibrated 2026-06-04, RMS 0.56 px,
+CALIB_FIX_K3|K4|K5), EXIF reader for JPEG and HEIC.
 Commit message: `phase 17 complete: per-device lens calibration`
 Merge branch: feature/phase-17-lens-calibration → main.
 
@@ -969,7 +973,8 @@ equivalent. This is noted explicitly only where the distinction matters.
    (Canny + minAreaRect). ONNX-based detection planned as phase 21.
 4. **Temporal comparison across inspections.** In roadmap as phase 26.
 5. **Per-device lens-distortion calibration.** ✅ Completed in
-   phase 17. Realme GT 7 Pro calibrated (RMS 1.63 px).
+   phase 17. Realme GT 7 Pro calibrated (RMS 0.56 px, 2026-06-04,
+   CALIB_FIX_K3|K4|K5).
 6. **Stereometry: light 3D from two photos.** In roadmap as phase 18.
 7. **Measurement reliability heatmap.** ✅ Completed in phase 12.
 8. **Live camera mode with continuous ArUco detection.** In roadmap
