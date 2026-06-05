@@ -3070,7 +3070,7 @@ function triggerStereoFilePick(slotIdx) {
     }
 
     /* All checks passed — store photo */
-    stereoPhotos.push({ img: undistorted, marker: result.best });
+    stereoPhotos.push({ img: undistorted, marker: result.best, lensModel: model || null });
     renderStereoSlots();
   });
 
@@ -3409,11 +3409,15 @@ function triangulateDepthPair(photoA, photoB, roiRect) {
 
     if (baselineMm < 1) return null;
 
-    const profile    = state.lensModel ? LENS_PROFILES[state.lensModel] : null;
+    /* Use the calibration profile of photo A's camera if available.
+       stereoPhotos entries carry their lens model so we don't depend
+       on state.lensModel, which belongs to the main measurement flow. */
+    const stereoModel = photoA.lensModel || null;
+    const profile    = stereoModel ? LENS_PROFILES[stereoModel] : null;
     const focalPx    = profile
       ? (profile.cameraMatrix[0][0] + profile.cameraMatrix[1][1]) / 2
       : 3500;
-    const distanceMm = estimateCameraDistance(photoA.marker);
+    const distanceMm = focalPx * photoA.marker.sizeMm / photoA.marker.avgSidePx;
 
     const moveDx = baselinePx > 0 ? (cxB - cxA) / baselinePx : 1;
     const moveDy = baselinePx > 0 ? (cyB - cyA) / baselinePx : 0;
@@ -3461,24 +3465,55 @@ function triangulateDepthPair(photoA, photoB, roiRect) {
     const tplCxB = matchX + rw / 2;
     const tplCyB = matchY + rh / 2;
 
-    /* Disparity = shift of the object centre projected onto the
-       camera movement axis */
-    const shiftX   = tplCxA - tplCxB;
-    const shiftY   = tplCyA - tplCyB;
-    const disparity = shiftX * moveDx + shiftY * moveDy;
+    /* The raw shift of the object between photo 1 and photo 2
+       contains two components:
+         1. The global camera translation (same for every point
+            in the scene, including the background).
+         2. The parallax due to the object's depth (the signal
+            we actually want).
+       The ArUco marker sits on the reference plane (depth = 0),
+       so its shift between the two photos is purely component 1.
+       Subtracting the marker shift from the object shift isolates
+       component 2 — the residual parallax that corresponds to
+       depth. */
+    const markerShiftX = cxB - cxA;
+    const markerShiftY = cyB - cyA;
 
-    if (Math.abs(disparity) < baselinePx * 0.005) {
-      console.warn('Stereo: disparity too small, object likely on marker plane.');
+    /* Object shift = position in photo1 minus position in photo2
+       (same sign convention as before). */
+    const objShiftX = tplCxA - tplCxB;
+    const objShiftY = tplCyA - tplCyB;
+
+    /* Residual parallax projected onto the camera movement axis */
+    const residualX   = objShiftX - (-markerShiftX);
+    const residualY   = objShiftY - (-markerShiftY);
+    const disparity   = residualX * moveDx + residualY * moveDy;
+
+    /* A near-zero residual means the object is on the marker plane */
+    if (Math.abs(disparity) < 0.5) {
+      console.warn('Stereo: residual disparity too small — object appears flat.');
       return null;
     }
 
-    /* Z = focal * baseline / disparity */
-    const z      = focalPx * baselinePx / disparity;
-    const zMarker= focalPx;
-    const deltaZ = ((z - zMarker) / focalPx) * distanceMm;
+    /* Depth formula:
+       The residual disparity is the extra pixel shift of the object
+       relative to the marker plane. In the thin-lens model:
 
-    /* Reject physically impossible values */
-    if (Math.abs(deltaZ) > distanceMm * 0.30) {
+         tan(parallax_angle) = disparity / focalPx
+         deltaZ = distanceMm * tan(parallax_angle)
+                = distanceMm * disparity / focalPx
+
+       Sign: positive disparity (object shifted less than marker)
+       means the object is farther from the camera = inward dent
+       (negative deltaZ). Negative disparity = outward bulge
+       (positive deltaZ). We flip the sign so the convention
+       matches the UI: negative = inward (dent), positive = outward. */
+    const deltaZ = -(distanceMm * disparity) / focalPx;
+
+    /* Sanity check: reject values larger than 40% of the
+       camera-to-surface distance (physically impossible for
+       surface damage on a flat panel) */
+    if (Math.abs(deltaZ) > distanceMm * 0.40) {
       console.warn(`Stereo: deltaZ out of range (${deltaZ.toFixed(1)} mm)`);
       return null;
     }
