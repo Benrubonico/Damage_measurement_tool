@@ -677,6 +677,26 @@ details[open] > summary::after   { content: '▾'; }
   padding: 14px;
   font-size: 15px;
 }
+#stereo-roi-wrap {
+  position: relative;
+  width: 100%;
+  background: #000;
+  border-radius: 8px;
+  overflow: hidden;
+  touch-action: none;
+}
+#stereo-roi-canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  cursor: crosshair;
+}
+#stereo-roi-hint {
+  font-size: 12px;
+  color: #aaa;
+  text-align: center;
+  min-height: 16px;
+}
   </style>
 </head>
 <body>
@@ -943,8 +963,22 @@ details[open] > summary::after   { content: '▾'; }
       <!-- e.g. "2 photos loaded — basic precision" -->
     </div>
 
+    <div id="stereo-roi-section" style="display:none; flex-direction:column; gap:8px;">
+      <div style="font-size:13px; font-weight:600; color:#ccc;">
+        Draw a rectangle over the object to measure
+      </div>
+      <div id="stereo-roi-wrap">
+        <canvas id="stereo-roi-canvas"></canvas>
+      </div>
+      <div id="stereo-roi-hint">Tap and drag to draw the rectangle</div>
+      <div style="display:flex; gap:8px;">
+        <button id="btn-stereo-roi-clear" class="secondary" style="flex:1">✕ Clear</button>
+        <button id="btn-stereo-calculate" class="success" style="flex:2" disabled>📐 Calculate depth / height</button>
+      </div>
+    </div>
+
     <div id="stereo-action-buttons" style="display:none;">
-      <button id="btn-stereo-calculate" class="success">📐 Calculate depth / height</button>
+      <button id="btn-stereo-show-roi" class="success">▶ Select region &amp; calculate</button>
     </div>
   </div>
 </div>
@@ -955,6 +989,12 @@ details[open] > summary::after   { content: '▾'; }
 <div id="modal-stereo-result" class="modal">
   <div class="box">
     <h3>📐 Result</h3>
+    <canvas id="stereo-result-canvas" style="
+      display:none;
+      width:100%;
+      border-radius:6px;
+      margin-bottom:10px;
+    "></canvas>
     <div id="stereo-result-value" style="
       font-size: 28px;
       font-weight: 700;
