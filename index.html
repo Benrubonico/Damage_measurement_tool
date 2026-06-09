@@ -1125,8 +1125,8 @@ details[open] > summary::after   { content: '▾'; }
           <h4>2 · Take the photo</h4>
           <ul>
             <li>Use the phone's <strong>main camera at 1×</strong>. Never wide-angle (0.5×).</li>
-            <li>Keep the marker and the damage inside the <strong>central 70%</strong> of the frame (cyan rectangle).</li>
-            <li>Hold the phone as <strong>parallel to the surface</strong> as possible. Angles above ~30° trigger a tilt warning.</li>
+            <li>Keep the marker and the damage inside the <strong>central 70%</strong> of the frame.</li>
+            <li>Hold the phone as <strong>parallel to the surface</strong> as possible. A tilt warning fires when the marker looks noticeably deformed.</li>
             <li>Good, even lighting. Avoid glare directly on the marker.</li>
           </ul>
         </div>
@@ -1152,6 +1152,15 @@ details[open] > summary::after   { content: '▾'; }
         </div>
 
         <div>
+          <h4>5 · Depth estimate (experimental)</h4>
+          <ul>
+            <li>Tap <strong>🧪 Depth / Height estimate</strong> in the Tools panel.</li>
+            <li>Load <strong>2 to 4 photos</strong> of the same damage taken from slightly different positions (move 3–6 cm sideways between shots, same zoom and distance).</li>
+            <li>Results have ~15–25% error on non-reflective surfaces. Use as a guide, not as a precise measurement.</li>
+          </ul>
+        </div>
+
+        <div>
           <h4>🎯 Auto-detect tips</h4>
           <ul>
             <li>Tap the <strong>centre of the damage</strong>, not the edge. The algorithm searches outward from that point.</li>
@@ -1164,16 +1173,15 @@ details[open] > summary::after   { content: '▾'; }
         <div>
           <h4>⚠ Accuracy limits</h4>
           <ul>
-            <li>Error ~0.3% at image centre, up to ~3% near the edges.</li>
+            <li>Error ~0.1% with calibrated device at image centre, ~0.5% uncalibrated, up to ~3% near the edges.</li>
             <li>Marker ID 0 is unreliable (3–5% error). Use only when strictly necessary.</li>
-            <li>The tool measures <strong>surface extent only</strong> — not depth or relief.</li>
+            <li>The tool measures <strong>surface extent only</strong>. The 🧪 depth estimate is experimental (±15–25% error).</li>
           </ul>
         </div>
 
       </div>
     </details>
   </div>
--
 </div>
 
 <div id="panel-backdrop"></div>
