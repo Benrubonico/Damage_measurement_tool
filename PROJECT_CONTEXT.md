@@ -34,11 +34,7 @@ Installable as a PWA (Progressive Web App) on any device.
 Tagged as v1.0-core after phase 13 completion.
 Tagged as v1.1-extract-app-js after phase 14 completion.
 Tagged as v1.2-multimarker after phase 16 completion.
-<<<<<<< HEAD
 Tagged v1.3-lens-calibration after phase 17. Tagged v1.4-stereometry after phase 18.
-=======
-Tag v1.3-lens-calibration pending after phase 17 commit.
->>>>>>> feature/phase-18-stereometry
 
 ### Implemented features
 
@@ -163,15 +159,10 @@ Tag v1.3-lens-calibration pending after phase 17 commit.
   the ArUco pipeline. If the device is not in LENS_PROFILES, the
   app works exactly as before — no degradation.
   Currently calibrated devices:
-<<<<<<< HEAD
-    - Realme GT 7 Pro: RMS 1.63 px, 21 checkerboard photos,
-      Sony IMX906, 1x lens (24mm equiv), portrait orientation.
-=======
     - Realme GT 7 Pro: RMS 0.56 px, 14 checkerboard photos,
       Sony IMX906, 1x lens (24mm equiv), portrait orientation.
       Recalibrated 2026-06-04 with CALIB_FIX_K3|K4|K5 flags
       to prevent k3 overfitting. k3 fixed to 0.0.
->>>>>>> feature/phase-18-stereometry
   EXIF reading works for JPEG files and for HEIC files from the
   Realme GT 7 Pro. The parser scans for the byte-order marker
   (II/MM) rather than assuming a fixed offset after Exif\0\0,
@@ -181,7 +172,6 @@ Tag v1.3-lens-calibration pending after phase 17 commit.
 
 Ongoing improvements to the Damage Measurement Tool, in planned order:
 
-<<<<<<< HEAD
 - Phase 19 — Web Workers: move OpenCV processing off the main browser
   thread so the UI never freezes. Required before real-time capture.
 - Phase 20 — Real-time capture assistant: live video stream with
@@ -189,67 +179,6 @@ Ongoing improvements to the Damage Measurement Tool, in planned order:
 - Phase 21 — ONNX Runtime Web integration: integrate the custom-trained
   vehicle damage model (YOLOv8 → ONNX) into the web app for
   client-side damage detection. No backend required.
-- Phase 20 — Real-time capture assistant: live video stream with
-  continuous ArUco detection and overlaid guidance. Most complex
-  phase technically.
-=======
-- Phase 18 — Stereometry: light 3D depth estimation from two photos
-  of the same damage, aligned via marker anchor, depth by
-  triangulation. Requires phase 17 for acceptable accuracy.
-- Phase 19 — Web Workers: move OpenCV processing off the main browser
-  thread so the UI never freezes. Required before real-time capture.
-- Phase 20 — Real-time capture assistant: live video stream with
-  continuous ArUco detection and overlaid guidance (marker visibility,
-  tilt warning, safe zone). Prerequisite: phase 19.
-- Phase 21 — ONNX Runtime Web (basic): integrate the custom-trained
-  vehicle damage model (YOLOv8 → ONNX) into the app for client-side
-  damage detection on static photos. No backend required.
-  Prerequisite: P2 (trained .onnx model ready).
-- Phase 22 — ONNX in real-time: run the damage detection model on
-  the live video stream. Combines phases 20 and 21.
-- Phase 23 — Domain-aware ONNX: model detects additional classes
-  (rivets, panel edges) and proposes protocol-driven measurements
-  automatically (e.g. distance from damage to nearest rivet centre).
-  Prerequisite: phase 22 + dataset with additional labelled classes.
-- Phase 24 — AI-generated inspection report: send dimension data
-  (JSON, no images) to a language model API and receive a structured
-  narrative report. Only requires measured dimensions, not ONNX.
-- Phase 25 — Integrated classification: combine measurement and
-  damage type classification in one flow. Prerequisite: phase 24.
-- Phase 26 — Temporal comparison: align successive photos of the
-  same zone via marker anchor and highlight damage growth.
-  Prerequisite: phase 21.
-- Phase 27 — Inspection session as first-class entity: container
-  for tail number / vehicle registration, date, inspector, list of
-  damages with photos and measurements. Ends with signed PDF report.
-  Prerequisite: phases 25 + 26.
-- Phase 28 — Zone coding: tag each photo with a zone identifier
-  before capture. Stored as metadata, searchable by zone.
-  Prerequisite: phase 27.
-- Phase 29 — PDF export: generate a signed technical report from
-  a completed inspection session. Prerequisite: phase 27.
-- Phase 30 — AR historical overlay: show historical damage overlaid
-  on live camera view, anchored via ArUco marker.
-  Prerequisite: phase 20.
-- Phase 31 — SAP / fleet system integration: push damage data
-  automatically to corporate maintenance or fleet management system.
-  Prerequisite: phase 29 + corporate decision.
-
-Parallel tracks (not blocking any phase):
-- P1 — Vehicle damage dataset: 200–500 labelled images using
-  Roboflow (public data) or Label Studio (local, for confidential
-  data — runs entirely on device, nothing leaves the machine).
-  Classes: dent, scratch, paint_damage, bumper_damage.
-  Try open sources first (Roboflow Universe, Kaggle).
-  If Accenture formally authorises use of real damage photos,
-  Label Studio on the work laptop is the correct tool: data never
-  leaves the device, no third-party servers involved.
-- P2 — YOLOv8 training: train a nano model on P1 dataset, export
-  to ONNX. Required before phase 21. Recommended hardware: personal
-  laptop with RTX 3050 Ti via SSH from work laptop (Remote SSH
-  extension in VS Code). CPU-only training on work laptop is
-  possible but slow (3–8 hours vs 15–30 minutes on GPU).
->>>>>>> feature/phase-18-stereometry
 
 A separate second portfolio project focused on AI applied to vehicle
 damage inspection (pipeline, dataset, model training) will be planned
@@ -348,26 +277,17 @@ this project.
     readExifModel() reads camera Model from JPEG/HEIC EXIF before
     heic2any conversion. undistortPhoto() applies cv.undistort
     silently if a profile exists. Falls back transparently if not.
-<<<<<<< HEAD
     Realme GT 7 Pro calibrated: RMS 0.56 px, 14 photos,
     CALIB_FIX_K3|K4|K5 flags (k3 fixed to 0, no overfitting).
-=======
-    Realme GT 7 Pro calibrated: RMS 0.56 px, 14 photos.
-    Recalibrated 2026-06-04 with CALIB_FIX_K3|K4|K5 flags.
->>>>>>> feature/phase-18-stereometry
     EXIF parser uses byte-order-marker scan (robust to Android padding).
     Branch: feature/phase-17-lens-calibration.
     Commit: phase 17 complete: per-device lens calibration.
     Tag after merge to main: v1.3-lens-calibration.
-<<<<<<< HEAD
 18. ✅ Stereometry: depth estimation from two photos via template
     matching with restricted search window. Formula:
     deltaZ = disparity * distanceMm / baselinePx. Validated
     experimentally: ~15–25% error on non-reflective surfaces.
     Marked experimental in UI. Tag v1.4-stereometry.
-=======
-18. ⏸ Stereometry: light 3D depth estimation from two photos.
->>>>>>> feature/phase-18-stereometry
 19. ⏸ ONNX Runtime Web: custom-trained vehicle damage model in browser.
 20. ⏸ Real-time capture assistant: live ArUco + guidance overlay.
 
@@ -404,18 +324,10 @@ this project.
 ✅ Tag: `v1.2-multimarker` — multi-marker homography + minAreaRect +
 experimental validation. Merged to main.
 
-<<<<<<< HEAD
 ### Checkpoint at phase 17 close — completed
 
 ✅ Tag: `v1.3-lens-calibration` — per-device lens undistortion,
 Realme GT 7 Pro calibrated, EXIF reader for JPEG and HEIC.
-=======
-### Checkpoint at phase 17 close — pending
-
-✅ Tag: `v1.3-lens-calibration` — per-device lens undistortion,
-Realme GT 7 Pro calibrated (recalibrated 2026-06-04, RMS 0.56 px,
-CALIB_FIX_K3|K4|K5), EXIF reader for JPEG and HEIC.
->>>>>>> feature/phase-18-stereometry
 Commit message: `phase 17 complete: per-device lens calibration`
 Merge branch: feature/phase-17-lens-calibration → main.
 
@@ -862,7 +774,6 @@ verifying it against the actual file first.
      execution path mentally — check that every flag set in one
      handler (e.g. `state.mouseDown`) is correctly read or reset
      in the handlers that follow.
-<<<<<<< HEAD
 
 - **When a bug report contradicts the expected behaviour of a code
   fragment that was just delivered, do not defend the fragment.
@@ -1006,134 +917,6 @@ Personal portfolio and learning track (in parallel, not blocking):
   client (aerospace or otherwise) is: "same pipeline, same accuracy,
   your data replaces the training set."
 
-=======
-
-- **When a bug report contradicts the expected behaviour of a code
-  fragment that was just delivered, do not defend the fragment.
-  Read the actual file, find the real problem, and fix it.** The
-  first step is always `grep` or `view` on the uploaded file, not
-  reasoning from memory.
-
-- **For any change that touches onTouchStart / onTouchMove /
-  onTouchEnd / onMouseDown / onMouseMove / onMouseUp: read all six
-  functions in full before proposing a change to any one of them.**
-  These functions share state flags (mouseDown, isPanning,
-  isPinching, draggingDim, currentStroke) and a change to one
-  always has potential side effects on the others.
-
-- **Never generate a whole-file replacement to fix a bug.** Always
-  use the minimum surgical change: identify the exact lines that
-  are wrong, show only those lines and their immediate context, and
-  explain why the change is correct before presenting it.
-
-- **When a feature is not working and the cause is not immediately
-  visible in the static code, do NOT deliver more code. Instead,
-  add temporary `console.log` statements at the key points of the
-  broken flow, deliver that diagnostic version, and ask the user
-  to open DevTools (F12 → Console), reproduce the problem, and
-  paste the console output. Only once the logs confirm exactly
-  where the flow breaks should new corrective code be written.**
-  This rule exists because phase 11 had multiple rounds of blind
-  fixes that introduced new bugs without diagnosing the real cause.
-
-## Future ideas (not in roadmap)
-
-These are ideas captured to avoid losing them. They are **not
-committed work** and will only enter the roadmap when an explicit
-decision is taken. They are organised by ambition, from
-"realistic incremental improvement" to "speculative". Items the
-project owner has explicitly flagged as more interesting are
-marked with ★. Items already assigned a roadmap phase show their
-phase number in brackets.
-
-**Domain note:** all items below are described in their aerospace
-context (the target application). For personal portfolio and
-learning purposes, the equivalent domain is vehicle bodywork — same
-pipeline, same techniques, publicly available data. Where items
-reference aircraft-specific workflows (SAP, tail number, zone
-coding), those are aerospace-only; the vehicle equivalent would be
-a damage report per vehicle registration number.
-
-### Workflow and traceability
-
-- **★ [Phase 27] Structured inspection session as a first-class entity.**
-  Today each photo is independent. An "inspection" would become
-  a container: tail number / vehicle registration, date, inspector,
-  list of documented damages, each with its photos and measurements.
-  The session ends by generating a signed PDF technical report.
-  Aerospace: aligns with the Microsoft 365 ecosystem in use at
-  the organisation. Vehicle equivalent: damage report at rental
-  car return or workshop intake.
-- **[Phase 25] Damage type catalogue integrated with the existing classifier.**
-  Each measured damage would be classified (Dent, Blend-out, Rivet
-  Pull-in / equivalent deformation types) using the logic of the
-  separate classification tool already developed. The two tools
-  would converge into a single deliverable: "measure + classify in
-  one flow".
-- **[Phase 28] Zone coding.** Before taking the photo, the inspector
-  tags the zone ("panel L-23, frame 14-15" for aircraft; "front left
-  door" for vehicles). The system stores it as metadata and allows
-  searching historical damages by zone.
-- **[Phase 31] Integration with corporate maintenance systems**
-  (e.g. SAP for aerospace; fleet management software for automotive).
-  Saved damages push automatically into the existing ticketing or
-  planning system. Aerospace-only feature; requires IT access.
-
-### Measurement core improvements
-
-- **★ Automatic damage detection (without AI).** ✅ Completed in
-  phase 15. Documented here for narrative context.
-- **[Phase 26] Temporal comparison across inspections.** If the same
-  zone is inspected periodically, the app could align successive
-  photos (the marker provides the alignment anchor) and highlight
-  new defects or growth of existing ones.
-- **[Phase 19] Web Workers for OpenCV processing.** Today the main
-  browser thread briefly freezes while OpenCV processes a heavy
-  photo. Moving detection and rectification to a Web Worker would
-  keep the UI responsive.
-
-### Capture and quality
-
-- **★ [Phase 20] Real-time capture assistant.** Already in roadmap
-  as phase 20. Documented here for narrative context.
-- **Oblique-lighting documentation.** Not a software item: a torch
-  held at grazing angle reveals dents invisible under frontal light.
-  Worth standardising as part of the inspection procedure for both
-  aerospace and vehicle contexts.
-
-### Speculative
-
-- **[Phase 21/22/23] Trained AI model on a labelled damage dataset.**
-  With hundreds of pre-classified real damages, a custom model
-  could classify automatically without human input. Only realistic
-  once a labelled dataset exists. For personal learning: built on
-  vehicle damage data (see Block 4). For corporate use: requires
-  Accenture to decide to build and label an internal aerospace
-  dataset. Labelling tool for confidential data: Label Studio
-  (local, no data leaves the device).
-- **[Phase 30] Augmented reality for location.** Pan the phone over
-  the surface and see historical damages overlaid. Visually
-  impressive but practical ROI is debatable. Could leverage LiDAR
-  on modern iPhones.
-- **Automatic generation of technical drawings.** Convert the
-  measured dimensions into the stylised drawing format used in
-  official reports. Aerospace-specific format; vehicle equivalent
-  would be a standardised damage diagram per insurance or fleet
-  management standards.
-- **★ [Phase 23] Domain-aware automatic measurement proposals.**
-  Once a labelled damage dataset exists, a trained model
-  (YOLOv8 → ONNX → browser) could learn domain-specific
-  measurement conventions automatically. Example in aerospace: when
-  a dent is detected near rivets, the model proposes the distance
-  from the damage edge to the nearest rivet centre. No backend
-  required: all inference runs client-side via ONNX Runtime Web.
-
-### Suggested order going forward (post phase 17)
-
-See "Pending work" section above for the full confirmed roadmap
-(phases 18–31 + parallel tracks P1/P2).
-
->>>>>>> feature/phase-18-stereometry
 **Solve the simple problem well before adding complexity.**
 
 ## Detailed catalogue (consolidated, May 2026)
@@ -1158,36 +941,22 @@ equivalent. This is noted explicitly only where the distinction matters.
    in phase 13 (detection and state storage) and phase 16
    (multi-marker homography via findHomography, threshold 15 px).
 3. **Assisted automatic damage detection.** ✅ Completed in phase 15
-<<<<<<< HEAD
    (Canny + minAreaRect). ONNX-based detection planned as phase 19.
 4. **Temporal comparison across inspections.** Not yet in roadmap.
 5. **Per-device lens-distortion calibration.** ✅ Completed in
-   phase 17. Realme GT 7 Pro calibrated (RMS 1.63 px).
-=======
-   (Canny + minAreaRect). ONNX-based detection planned as phase 21.
-4. **Temporal comparison across inspections.** In roadmap as phase 26.
-5. **Per-device lens-distortion calibration.** ✅ Completed in
    phase 17. Realme GT 7 Pro calibrated (RMS 0.56 px, 2026-06-04,
    CALIB_FIX_K3|K4|K5).
->>>>>>> feature/phase-18-stereometry
-6. **Stereometry: light 3D from two photos.** In roadmap as phase 18.
+6. **Stereometry: light 3D from two photos.** ✅ Completed in phase 18.
 7. **Measurement reliability heatmap.** ✅ Completed in phase 12.
 8. **Live camera mode with continuous ArUco detection.** In roadmap
    as phase 20.
 
 ### Block 2 — Workflow and traceability
 
-<<<<<<< HEAD
 9. **Structured inspection session as first-class entity.**
 10. **Zone coding.**
 11. **Integration with corporate maintenance / fleet system.**
 12. **Damage type catalogue + convergence with existing classifier.**
-=======
-9. **Structured inspection session as first-class entity.** In roadmap as phase 27.
-10. **Zone coding.** In roadmap as phase 28.
-11. **Integration with corporate maintenance / fleet system.** In roadmap as phase 31.
-12. **Damage type catalogue + convergence with existing classifier.** In roadmap as phase 25.
->>>>>>> feature/phase-18-stereometry
 
 ### Block 3 — Capture and image quality
 
@@ -1204,21 +973,13 @@ equivalent. This is noted explicitly only where the distinction matters.
     Universe, Kaggle). ArUco markers NOT required in training photos.
 17. **Train a small model with YOLOv8 or similar.** Export to ONNX.
 18. **Integrate the trained model into the web app via ONNX Runtime
-<<<<<<< HEAD
     Web.** In roadmap as phase 19.
-=======
-    Web.** In roadmap as phase 21.
->>>>>>> feature/phase-18-stereometry
 19. **Aerospace AI model for automatic classification (corporate
     decision).** Depends entirely on corporate decisions.
 
 ### Block 5 — Augmented reality and technical drawings
 
-<<<<<<< HEAD
 20. **Augmented reality for historical damage location.**
-=======
-20. **Augmented reality for historical damage location.** In roadmap as phase 30.
->>>>>>> feature/phase-18-stereometry
 21. **Automatic technical drawing generation.**
 
 ### Block 6 — Certifications and career
@@ -1234,11 +995,7 @@ equivalent. This is noted explicitly only where the distinction matters.
     publicly (LinkedIn or technical blog). Return materialises at
     12–18 months. Cost: 1–2 hours/week.
 
-<<<<<<< HEAD
 ## How to start the next session (phase 19 — Web Workers)
-=======
-## How to start the next session (phase 18 — stereometry)
->>>>>>> feature/phase-18-stereometry
 
 When opening a new chat:
 
@@ -1251,7 +1008,6 @@ When opening a new chat:
    plain language.
 5. Deliver changes as copy-pasteable fragments for VS Code, not as
    whole-file replacements. Explain each fragment before presenting it.
-<<<<<<< HEAD
 
 Phase 19 covers Web Workers — moving OpenCV processing off the main
 browser thread:
@@ -1273,34 +1029,3 @@ browser thread:
   Active branch to open: feature/phase-19-web-workers
   Suggested commit message: `phase 19 complete: Web Workers for OpenCV`
   Tag after merge to main: v1.5-web-workers
-=======
-
-Phase 18 covers stereometry — light 3D depth estimation from two
-photos of the same damage:
-
-  The inspector takes two photos of the same damage from slightly
-  different angles, both with the same ArUco marker visible. The
-  app aligns the two photos using the marker as an anchor, then
-  estimates depth by triangulation (epipolar geometry). This adds
-  a third dimension to the measurement: not just the surface extent
-  of the damage, but its depth/relief.
-
-  Prerequisites now met:
-  - Phase 17 lens calibration provides the camera intrinsics
-    (focal length, principal point) needed for accurate
-    triangulation. Without calibration, depth error would be
-    unacceptably high.
-  - The Realme GT 7 Pro profile is available in LENS_PROFILES.
-
-  Key decisions to make at the start of phase 18:
-  - Minimum baseline: how far apart must the two photos be for
-    reliable triangulation? (Typically 5–15% of the distance
-    to the subject.)
-  - Depth output format: numeric value in mm, or visual depth map?
-  - User flow: how does the inspector indicate "these two photos
-    are a stereo pair"? Session-based or explicit pairing?
-
-  Active branch to open: feature/phase-18-stereometry
-  Suggested commit message: `phase 18 complete: stereometry depth estimation`
-  Tag after merge to main: v1.4-stereometry
->>>>>>> feature/phase-18-stereometry
