@@ -2914,8 +2914,8 @@ function closeStereoOverlay() {
   document.getElementById('stereo-photos-status').textContent = '';
   document.getElementById('stereo-action-buttons').style.display = 'none';
   document.getElementById('stereo-roi-section').style.display = 'none';
-  stereoPhotos   = [];
-  stereoRoiRect  = null;
+  stereoPhotos  = [];
+  stereoRoiRect = null;
 }
 
 /* ---------- slot rendering ---------- */
@@ -3422,97 +3422,75 @@ function triangulateDepthPair(photoA, photoB, roiRect) {
     const moveDx = baselinePx > 0 ? (cxB - cxA) / baselinePx : 1;
     const moveDy = baselinePx > 0 ? (cyB - cyA) / baselinePx : 0;
 
-    /* ---- Template matching ---- */
+    /* Object centre in photo A (from inspector-drawn ROI rectangle) */
+    const tplCxA = roiRect.x + roiRect.w / 2;
+    const tplCyA = roiRect.y + roiRect.h / 2;
+
+    /* Object centre in photo B via template matching restricted to
+       a ±120 px window around the expected position.
+       Expected position = photo-A centre shifted by the marker
+       displacement (A→B). This eliminates false matches from
+       reflections or similar background regions. */
     cv.cvtColor(srcA, grayA, cv.COLOR_RGBA2GRAY);
     cv.cvtColor(srcB, grayB, cv.COLOR_RGBA2GRAY);
 
-    /* Clamp the ROI to photo A dimensions to avoid out-of-bounds */
     const rx = Math.max(0, Math.round(roiRect.x));
     const ry = Math.max(0, Math.round(roiRect.y));
     const rw = Math.min(grayA.cols - rx, Math.round(roiRect.w));
     const rh = Math.min(grayA.rows - ry, Math.round(roiRect.h));
-
     if (rw < 5 || rh < 5) return null;
 
-    /* Extract the template from photo A */
     const roiA = grayA.roi(new cv.Rect(rx, ry, rw, rh));
     roiA.copyTo(tmpl);
     roiA.delete();
 
-    /* matchTemplate needs the search image to be at least as large
-       as the template, so check sizes */
-    if (grayB.cols < rw || grayB.rows < rh) return null;
+    const expectedCxB = tplCxA + (cxB - cxA);
+    const expectedCyB = tplCyA + (cyB - cyA);
 
-    /* TM_CCOEFF_NORMED: +1 = perfect match, values close to 1 are reliable */
-    cv.matchTemplate(grayB, tmpl, result, cv.TM_CCOEFF_NORMED);
+    const margin = 120;
+    const swX = Math.max(0, Math.round(expectedCxB - rw / 2 - margin));
+    const swY = Math.max(0, Math.round(expectedCyB - rh / 2 - margin));
+    const swW = Math.min(grayB.cols - swX, rw + margin * 2);
+    const swH = Math.min(grayB.rows - swY, rh + margin * 2);
+    if (swW < rw || swH < rh) return null;
+
+    const searchRoi = grayB.roi(new cv.Rect(swX, swY, swW, swH));
+    cv.matchTemplate(searchRoi, tmpl, result, cv.TM_CCOEFF_NORMED);
+    searchRoi.delete();
 
     const minMax = cv.minMaxLoc(result);
-    const matchScore = minMax.maxVal;
-
-    /* Reject weak matches — below 0.4 the result is unreliable */
-    if (matchScore < 0.4) {
-      console.warn(`Stereo: template match score too low (${matchScore.toFixed(2)})`);
+    if (minMax.maxVal < 0.4) {
+      console.warn(`Stereo: match score too low (${minMax.maxVal.toFixed(2)})`);
       return null;
     }
 
-    /* Best match position in photo B */
-    const matchX = minMax.maxLoc.x;
-    const matchY = minMax.maxLoc.y;
+    let tplCxB = swX + minMax.maxLoc.x + rw / 2;
+    let tplCyB = swY + minMax.maxLoc.y + rh / 2;
 
-    /* Centre of template in photo A, centre of match in photo B */
-    const tplCxA = rx + rw / 2;
-    const tplCyA = ry + rh / 2;
-    const tplCxB = matchX + rw / 2;
-    const tplCyB = matchY + rh / 2;
-
-    /* The raw shift of the object between photo 1 and photo 2
-       contains two components:
-         1. The global camera translation (same for every point
-            in the scene, including the background).
-         2. The parallax due to the object's depth (the signal
-            we actually want).
-       The ArUco marker sits on the reference plane (depth = 0),
-       so its shift between the two photos is purely component 1.
-       Subtracting the marker shift from the object shift isolates
-       component 2 — the residual parallax that corresponds to
-       depth. */
+    /* Residual parallax — both shifts in A→B convention:
+       marker:  cxB - cxA
+       object:  tplCxB - tplCxA
+       residual = object_shift - marker_shift */
+    const objShiftX    = tplCxB - tplCxA;
+    const objShiftY    = tplCyB - tplCyA;
     const markerShiftX = cxB - cxA;
     const markerShiftY = cyB - cyA;
+    const residualX    = objShiftX - markerShiftX;
+    const residualY    = objShiftY - markerShiftY;
+    const disparity    = residualX * moveDx + residualY * moveDy;
 
-    /* Object shift = position in photo1 minus position in photo2
-       (same sign convention as before). */
-    const objShiftX = tplCxA - tplCxB;
-    const objShiftY = tplCyA - tplCyB;
-
-    /* Residual parallax projected onto the camera movement axis */
-    const residualX   = objShiftX - (-markerShiftX);
-    const residualY   = objShiftY - (-markerShiftY);
-    const disparity   = residualX * moveDx + residualY * moveDy;
-
-    /* A near-zero residual means the object is on the marker plane */
     if (Math.abs(disparity) < 0.5) {
-      console.warn('Stereo: residual disparity too small — object appears flat.');
+      console.warn('Stereo: residual too small — object appears flat.');
       return null;
     }
 
-    /* Depth formula:
-       The residual disparity is the extra pixel shift of the object
-       relative to the marker plane. In the thin-lens model:
+    /* deltaZ = disparity * distanceMm / baselinePx
+       This is the correct thin-lens stereo formula when disparity
+       is measured relative to the marker (baseline reference).
+       Positive disparity = object shifted more than marker = outward.
+       Negative = inward (dent). */
+    const deltaZ = (disparity * distanceMm) / baselinePx;
 
-         tan(parallax_angle) = disparity / focalPx
-         deltaZ = distanceMm * tan(parallax_angle)
-                = distanceMm * disparity / focalPx
-
-       Sign: positive disparity (object shifted less than marker)
-       means the object is farther from the camera = inward dent
-       (negative deltaZ). Negative disparity = outward bulge
-       (positive deltaZ). We flip the sign so the convention
-       matches the UI: negative = inward (dent), positive = outward. */
-    const deltaZ = -(distanceMm * disparity) / focalPx;
-
-    /* Sanity check: reject values larger than 40% of the
-       camera-to-surface distance (physically impossible for
-       surface damage on a flat panel) */
     if (Math.abs(deltaZ) > distanceMm * 0.40) {
       console.warn(`Stereo: deltaZ out of range (${deltaZ.toFixed(1)} mm)`);
       return null;
