@@ -172,13 +172,22 @@ Tagged v1.3-lens-calibration after phase 17. Tagged v1.4-stereometry after phase
 
 Ongoing improvements to the Damage Measurement Tool, in planned order:
 
-- Phase 19 — Web Workers: move OpenCV processing off the main browser
-  thread so the UI never freezes. Required before real-time capture.
-- Phase 20 — Real-time capture assistant: live video stream with
-  continuous ArUco detection and overlaid guidance. Prerequisite: phase 19.
-- Phase 21 — ONNX Runtime Web integration: integrate the custom-trained
-  vehicle damage model (YOLOv8 → ONNX) into the web app for
-  client-side damage detection. No backend required.
+- P1/P2 — Dataset (aircraft/vehicle) + YOLOv8 training → ONNX export.
+  In progress. Dataset at ~/datasets/aircraft-skin-defects (10,652 images,
+  classes: crack, dent, paint-off, scratch). Training on RTX 3050 Ti via WSL2.
+- Phase 21 — ONNX Runtime Web (basic): integrate trained model into app
+  for client-side damage detection on static photos. No backend required.
+- Phase 23 — Domain-aware ONNX: model detects rivets and panel edges,
+  proposes protocol-driven measurements automatically (e.g. distance from
+  damage edge to nearest rivet centre).
+- Phase 24 — AI-generated inspection report: send dimension data (JSON,
+  no images) to Azure OpenAI and receive a structured narrative report.
+- Phase 19 — Web Workers: implement only if ONNX inference causes
+  unacceptable UI freezing. Not a blocker for phases 21/23/24.
+- Phase 20 — Real-time capture assistant: DISCARDED. getUserMedia() on
+  mobile gives worse image quality than native camera (autofocus,
+  optical zoom, iOS restrictions). Native camera workflow already solves
+  the operational problem phase 20 was designed to address.
 
 A separate second portfolio project focused on AI applied to vehicle
 damage inspection (pipeline, dataset, model training) will be planned
@@ -860,8 +869,8 @@ a damage report per vehicle registration number.
 
 ### Capture and quality
 
-- **★ Real-time capture assistant.** Already in roadmap as phase 20.
-  Documented here for narrative context.
+- **Real-time capture assistant.** Discarded — see item 8 and 13 in
+  catalogue. Native camera is superior on mobile.
 - **Oblique-lighting documentation.** Not a software item: a torch
   held at grazing angle reveals dents invisible under frontal light.
   Worth standardising as part of the inspection procedure for both
@@ -885,37 +894,27 @@ a damage report per vehicle registration number.
   official reports. Aerospace-specific format; vehicle equivalent
   would be a standardised damage diagram per insurance or fleet
   management standards.
-- **★ Domain-aware automatic measurement proposals (phase 19
-  motivation).** Once a labelled damage dataset exists, a trained
-  model (YOLOv8 → ONNX → browser) could learn domain-specific
-  measurement conventions automatically. Example in aerospace: when
-  a dent is detected near rivets, the model proposes the distance
-  from the damage edge to the nearest rivet centre. No backend
+- **★ Domain-aware automatic measurement proposals (phase 23).** Once
+  a trained ONNX model is integrated (phase 21), it can learn domain-
+  specific measurement conventions automatically. Example in aerospace:
+  when a dent is detected near rivets, the model proposes the distance
+  from the damage edge to the nearest rivet centre — generating cotas
+  like a professional inspection drawing, automatically. No backend
   required: all inference runs client-side via ONNX Runtime Web.
 
-### Suggested order going forward (post phase 17)
+### Suggested order going forward (post phase 18)
 
-1. Phase 18 — Stereometry (light 3D, two photos).
-   Now viable after phase 17 reduces intrinsic camera error.
-2. Phase 19 — ONNX Runtime Web (vehicle damage model in browser).
-   Depends on vehicle dataset completed in parallel.
-3. Phase 20 — Real-time capture assistant (last, most complex).
+Phases 1–18 complete. Active parallel track: P1/P2 (dataset + training).
 
-Personal portfolio and learning track (in parallel, not blocking):
-- **Dataset first step: check open sources before taking photos.**
-  Roboflow Universe and Kaggle have open-licence car damage datasets
-  downloadable via API. Spend an afternoon testing this approach
-  before committing weeks to manual photo collection.
-- Label with Roboflow (free tier). Classes: dent, scratch,
-  paint_damage, bumper_damage. Variety over quantity.
-- Learn Python + opencv-python to experiment with the pipeline before
-  porting anything to JavaScript (see Block 4, item 15).
-- Train a YOLOv8 nano model on the vehicle dataset, export to ONNX,
-  integrate into the web app via ONNX Runtime Web (items 16–18).
-  No backend required: all inference runs in the browser.
-- Once the vehicle model is working, the pitch to any industrial
-  client (aerospace or otherwise) is: "same pipeline, same accuracy,
-  your data replaces the training set."
+1. P1/P2 — Complete YOLOv8 training on aircraft-skin-defects dataset,
+   export to ONNX. In progress on RTX 3050 Ti via WSL2.
+2. Phase 21 — ONNX Runtime Web (basic): integrate .onnx model into
+   the app for client-side damage detection on static photos.
+3. Phase 23 — Domain-aware: rivets, edges, automatic cota proposals.
+4. Phase 24 — AI report: Azure OpenAI generates structured narrative
+   from numeric measurement data. Fast to implement, high portfolio value.
+5. Phase 19 — Web Workers: only if ONNX inference causes UI freezing.
+6. Phase 20 — DISCARDED. Native camera superior on mobile.
 
 **Solve the simple problem well before adding complexity.**
 
@@ -948,8 +947,9 @@ equivalent. This is noted explicitly only where the distinction matters.
    CALIB_FIX_K3|K4|K5).
 6. **Stereometry: light 3D from two photos.** ✅ Completed in phase 18.
 7. **Measurement reliability heatmap.** ✅ Completed in phase 12.
-8. **Live camera mode with continuous ArUco detection.** In roadmap
-   as phase 20.
+8. **Live camera mode with continuous ArUco detection.** Discarded —
+   getUserMedia() on mobile gives inferior image quality vs native camera.
+   Native camera workflow already covers the operational need.
 
 ### Block 2 — Workflow and traceability
 
@@ -960,7 +960,7 @@ equivalent. This is noted explicitly only where the distinction matters.
 
 ### Block 3 — Capture and image quality
 
-13. **Real-time capture assistant.** In roadmap as phase 20.
+13. **Real-time capture assistant.** Discarded — same reason as item 8.
 14. **Oblique lighting to reveal relief.** Operational rule, not
     software. Belongs in inspector guidelines for both domains.
 
@@ -995,7 +995,7 @@ equivalent. This is noted explicitly only where the distinction matters.
     publicly (LinkedIn or technical blog). Return materialises at
     12–18 months. Cost: 1–2 hours/week.
 
-## How to start the next session (phase 19 — Web Workers)
+## How to start the next session (phase 21 — ONNX Runtime Web)
 
 When opening a new chat:
 
@@ -1009,23 +1009,20 @@ When opening a new chat:
 5. Deliver changes as copy-pasteable fragments for VS Code, not as
    whole-file replacements. Explain each fragment before presenting it.
 
-Phase 19 covers Web Workers — moving OpenCV processing off the main
-browser thread:
+Phase 21 covers ONNX Runtime Web — integrating the trained YOLOv8 model
+into the browser app for client-side damage detection:
 
-  Today the UI freezes briefly while OpenCV processes a photo (ArUco
-  detection, warpPerspective, undistort). On a high-resolution photo
-  from the Realme GT 7 Pro (2304×4096 px) this can take 1–3 seconds.
-  Moving that work to a Web Worker keeps the UI responsive throughout.
+  Prerequisites: P1/P2 complete (trained .onnx file ready).
+  The model runs entirely in the browser via ONNX Runtime Web —
+  no backend, no API calls, no images leave the device.
 
-  Key decisions to make at the start of phase 19:
-  - Which operations move to the worker: at minimum detectArucoMarker,
-    rectifyImageWithMarker, undistortPhoto. Possibly also the stereo
-    triangulation.
-  - Communication pattern: postMessage with transferable ImageBitmap
-    objects to avoid copying pixel data.
-  - Loading OpenCV.js inside the worker: requires importScripts() and
-    a module-compatible build, or a wrapper approach.
+  Key decisions to make at the start of phase 21:
+  - ONNX Runtime Web loading: via CDN or bundled locally (prefer local
+    for offline PWA support).
+  - Input format: model expects 640×640 px normalised tensor.
+  - Output: bounding boxes + class scores → overlay on photo canvas.
+  - Integration point: after ArUco calibration, before manual measurement.
 
-  Active branch to open: feature/phase-19-web-workers
-  Suggested commit message: `phase 19 complete: Web Workers for OpenCV`
-  Tag after merge to main: v1.5-web-workers
+  Active branch to open: feature/phase-21-onnx
+  Suggested commit message: `phase 21 complete: ONNX damage detection`
+  Tag after merge to main: v1.5-onnx
