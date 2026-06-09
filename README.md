@@ -18,13 +18,15 @@ Typical workflow: **photo → open in tool → measure → save/share** in under
 ### Measurement core
 - **Automatic scale calibration** via ArUco marker detection (OpenCV.js, DICT_4X4_50). Three marker sizes supported:
   - ID 0 → 14.75 mm (small damage, < 40 mm)
-  - ID 1 → 49.75 mm (medium damage, 50–200 mm) — primary marker
-  - ID 2 → 99.75 mm (large damage, > 200 mm)
+  - ID 1 → 49.874 mm (medium damage, 50–200 mm) — primary marker
+  - ID 2 → 99.874 mm (large damage, > 200 mm)
 - **Perspective correction** (`warpPerspective`): the marker's four corners are used to rectify the image plane, making mm/pixel constant across the entire frame. Eliminates the distance-from-marker error present in naive single-point calibration.
-- **Multi-marker homography**: when ≥2 markers are detected in the same photo, the app computes a more robust rectification via `cv.findHomography` (least squares over all marker corners). Falls back to single-marker automatically when markers are not sufficiently coplanar (threshold: 2.0 px max residual).
+- **Multi-marker homography**: when ≥2 markers are detected in the same photo, the app computes a more robust rectification via `cv.findHomography` (least squares over all marker corners). Falls back to single-marker automatically when markers are not sufficiently coplanar (threshold: 15.0 px max residual).
 - **Multi-marker display**: all known markers present in a photo are detected and displayed simultaneously, each with a distinct colour overlay and label. The largest marker (most pixels per side) is used as the primary scale reference.
+- **Per-device lens calibration** (phase 17): one-time checkerboard calibration per phone model. Coefficients stored in `LENS_PROFILES` in `app.js`. Applied silently via `cv.undistort` before the ArUco pipeline. Currently calibrated: Realme GT 7 Pro (RMS 0.56 px, `CALIB_FIX_K3|K4|K5`). Falls back transparently for uncalibrated devices.
 - **Assisted damage detection** (🎯 Auto-detect): two modes — tap a point to detect the most prominent contour in a 120 mm window around it, or draw a rectangle over the object for a modal offering Width, Height, Both, or Longest diagonal. Uses `cv.minAreaRect` so dimensions follow the object's own axes regardless of rotation. If no contour is found, returns to idle silently.
-- **Tilt detection**: photos where the marker's sides differ by more than 10% in length trigger a blocking modal. The user can retake the photo or continue under their own responsibility (badge turns red with ⚠).
+- **Stereometry** (🧪 experimental): load two photos of the same damage from slightly different angles. The app estimates depth/height via template matching and the thin-lens formula. Typical error ~15–25% on non-reflective surfaces. Marked experimental in the UI.
+- **Tilt detection**: photos where the marker's sides differ by more than 15% in length trigger a blocking modal. The user can retake the photo or continue under their own responsibility (badge turns red with ⚠).
 - **Manual calibration fallback**: two-point reference flow for photos without a marker.
 
 ### Measurement display
@@ -34,7 +36,7 @@ Typical workflow: **photo → open in tool → measure → save/share** in under
 
 ### Visual tools
 - **Before/after comparison** (⊙ View original): hold to see the un-rectified photo at the same zoom and pan.
-- **Accuracy lens map** (◎): hold to show a radial gradient overlay — green at centre (~0.3% error) → yellow at 70% boundary → red at corners (~3% error). Never appears on exported JPEGs.
+- **Accuracy lens map** (◎): hold to show a radial gradient overlay — green at centre (~0.1% error with calibrated device) → yellow at 70% boundary → red at corners (~3% error). Never appears on exported JPEGs.
 - **Free annotations**: freehand pen tool with configurable colour and stroke width, plus text stamps. Full undo and clear-all support.
 - **Clean view**: hide all overlays to see the photo only.
 - **Pinch-zoom and pan** for precise point placement on mobile and desktop.
@@ -51,10 +53,11 @@ Typical workflow: **photo → open in tool → measure → save/share** in under
 
 ---
 
-## Accuracy (validated, May 2026)
+## Accuracy (validated, June 2026)
 
 | Condition | Method | Error |
 |---|---|---|
+| Calibrated device, straight-edged damage, close, ≤ 70% zone | Auto (minAreaRect) | **~0.1%** |
 | Straight-edged damage, close, vertical orientation, ≤ 70% zone | Auto (minAreaRect) | **~0.5%** |
 | Straight-edged damage, close, ≤ 70% zone | Manual | ~0.7% (systematic underestimate) |
 | Straight-edged damage, far, ≤ 70% zone | Auto or Manual | ~1.5–2.0% |
@@ -70,8 +73,6 @@ Typical workflow: **photo → open in tool → measure → save/share** in under
 
 **Orientation matters:** orient the phone so the long axis of the damage runs vertically in the frame. Best validated result: vertical orientation, close, manual — long side +0.5%, short side +0.2%.
 
-Root cause of residual error: radial lens distortion (not corrected by `warpPerspective`). Mitigated by the safe zone operational rule. Per-device lens calibration (checkerboard, phase 17) will push best-case error below 0.1%.
-
 **Key finding from pre/post phase 6 testing:** before perspective correction, error scaled with distance from marker (up to +7.5% at far edges). After correction, this systematic bias was eliminated — error is now distance-independent within the safe zone.
 
 ---
@@ -79,7 +80,7 @@ Root cause of residual error: radial lens distortion (not corrected by `warpPers
 ## Measurement limits
 
 The pipeline is **2D geometric** — it measures distances on the plane of the marker. It does **not** measure:
-- Depth, volume, or relief of the damage.
+- Depth, volume, or relief of the damage (stereometry provides an experimental estimate only).
 - Features lying on a different plane from the marker.
 - Anything outside the photo frame.
 
@@ -103,7 +104,7 @@ The pipeline is **2D geometric** — it measures distances on the plane of the m
 - Keep **both marker and damage within the central 70%** of the image. Lens distortion grows toward the edges.
 - **Take the photo as close as practicable.** Closer = more pixels per mm = lower error. Far photos approach the 2% limit even within the safe zone.
 - **Orient the phone so the long axis of the damage runs vertically** in the frame (portrait orientation for elongated damage).
-- Hold the phone as **parallel to the surface** as possible. The tilt warning fires at a 10% side-variance limit, but is a coarse filter — moderate angles below the threshold still introduce error.
+- Hold the phone as **parallel to the surface** as possible. The tilt warning fires at a 15% side-variance limit, but is a coarse filter — moderate angles below the threshold still introduce error.
 - Prefer **marker ID 1** (50 mm) for most inspections. ID 0 (15 mm) is unreliable; use only when ID 1 does not fit the scene.
 - Avoid auto-switching to macro mode at very close range on phones that change lens automatically.
 - For **straight-edged damage**, use 🎯 Auto-detect. It finds the real contour boundary and is more accurate than manual tapping.
@@ -134,7 +135,7 @@ repo-root/
 ## Tech stack
 
 - **Vanilla HTML + CSS + JavaScript.** No frameworks, no build step, no npm, no transpiler.
-- **OpenCV.js** (techstark build 4.12.0): ArUco detection + `warpPerspective` + `findHomography` + `minAreaRect`. Bundled locally — the official opencv.org build does not include ArUco.
+- **OpenCV.js** (techstark build 4.12.0): ArUco detection + `warpPerspective` + `findHomography` + `minAreaRect` + `undistort`. Bundled locally — the official opencv.org build does not include ArUco.
 - **heic2any** 0.0.4: client-side HEIC/HEIF conversion. Bundled locally.
 - **Azure Static Web Apps**: hosting and access control via Microsoft account authentication (role: inspector).
 - **GitHub Actions**: automatic deployment to Azure on every push to `main`.
@@ -168,12 +169,9 @@ All users will automatically receive the update on their next visit.
 | 13 | ✅ Done | Multi-marker support — **tagged v1.0-core** |
 | 14 | ✅ Done | Extract `app.js` (maintainability refactor) — **tagged v1.1-extract-app-js** |
 | 15 | ✅ Done | Assisted damage detection: Canny + `minAreaRect`, no AI |
-| 16 | ✅ Done | Multi-marker homography (`findHomography`, 2 px threshold) — **tagged v1.2-multimarker** |
-| 17 | ⏸ Planned | Per-device lens distortion calibration (checkerboard) |
-| 18 | ⏸ Planned | Stereometry: light 3D depth from two photos |
-| 19 | ⏸ Planned | ONNX Runtime Web: custom-trained vehicle damage model in browser |
-| 20 | ⏸ Planned | Real-time capture assistant: live ArUco + guidance overlay |
-
----
-
-*Internal use only.*
+| 16 | ✅ Done | Multi-marker homography (`findHomography`, 15 px threshold) — **tagged v1.2-multimarker** |
+| 17 | ✅ Done | Per-device lens calibration (checkerboard, RMS 0.56 px) — **tagged v1.3-lens-calibration** |
+| 18 | ✅ Done | Stereometry: experimental depth estimation from two photos — **tagged v1.4-stereometry** |
+| 21 | 🔄 Next | ONNX Runtime Web: custom-trained damage model in browser |
+| 23 | ⏸ Planned | Domain-aware detection: rivets, edges, automatic measurement proposals |
+| 24 | ⏸ Planned | AI-generated inspection report (Azure OpenAI, numeric data only) |
