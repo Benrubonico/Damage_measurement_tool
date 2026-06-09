@@ -34,7 +34,7 @@ Installable as a PWA (Progressive Web App) on any device.
 Tagged as v1.0-core after phase 13 completion.
 Tagged as v1.1-extract-app-js after phase 14 completion.
 Tagged as v1.2-multimarker after phase 16 completion.
-Tag v1.3-lens-calibration pending after phase 17 commit.
+Tagged v1.3-lens-calibration after phase 17. Tagged v1.4-stereometry after phase 18.
 
 ### Implemented features
 
@@ -170,10 +170,11 @@ Tag v1.3-lens-calibration pending after phase 17 commit.
 
 Ongoing improvements to the Damage Measurement Tool, in planned order:
 
-- Phase 18 — Stereometry: light 3D depth estimation from two photos
-  of the same damage, aligned via marker anchor, depth by
-  triangulation. Requires phase 17 for acceptable accuracy.
-- Phase 19 — ONNX Runtime Web integration: integrate the custom-trained
+- Phase 19 — Web Workers: move OpenCV processing off the main browser
+  thread so the UI never freezes. Required before real-time capture.
+- Phase 20 — Real-time capture assistant: live video stream with
+  continuous ArUco detection and overlaid guidance. Prerequisite: phase 19.
+- Phase 21 — ONNX Runtime Web integration: integrate the custom-trained
   vehicle damage model (YOLOv8 → ONNX) into the web app for
   client-side damage detection. No backend required.
 - Phase 20 — Real-time capture assistant: live video stream with
@@ -277,12 +278,17 @@ this project.
     readExifModel() reads camera Model from JPEG/HEIC EXIF before
     heic2any conversion. undistortPhoto() applies cv.undistort
     silently if a profile exists. Falls back transparently if not.
-    Realme GT 7 Pro calibrated: RMS 1.63 px, 21 photos.
+    Realme GT 7 Pro calibrated: RMS 0.56 px, 14 photos,
+    CALIB_FIX_K3|K4|K5 flags (k3 fixed to 0, no overfitting).
     EXIF parser uses byte-order-marker scan (robust to Android padding).
     Branch: feature/phase-17-lens-calibration.
     Commit: phase 17 complete: per-device lens calibration.
     Tag after merge to main: v1.3-lens-calibration.
-18. ⏸ Stereometry: light 3D depth estimation from two photos.
+18. ✅ Stereometry: depth estimation from two photos via template
+    matching with restricted search window. Formula:
+    deltaZ = disparity * distanceMm / baselinePx. Validated
+    experimentally: ~15–25% error on non-reflective surfaces.
+    Marked experimental in UI. Tag v1.4-stereometry.
 19. ⏸ ONNX Runtime Web: custom-trained vehicle damage model in browser.
 20. ⏸ Real-time capture assistant: live ArUco + guidance overlay.
 
@@ -319,7 +325,7 @@ this project.
 ✅ Tag: `v1.2-multimarker` — multi-marker homography + minAreaRect +
 experimental validation. Merged to main.
 
-### Checkpoint at phase 17 close — pending
+### Checkpoint at phase 17 close — completed
 
 ✅ Tag: `v1.3-lens-calibration` — per-device lens undistortion,
 Realme GT 7 Pro calibrated, EXIF reader for JPEG and HEIC.
@@ -989,7 +995,7 @@ equivalent. This is noted explicitly only where the distinction matters.
     publicly (LinkedIn or technical blog). Return materialises at
     12–18 months. Cost: 1–2 hours/week.
 
-## How to start the next session (phase 18 — stereometry)
+## How to start the next session (phase 19 — Web Workers)
 
 When opening a new chat:
 
@@ -1003,31 +1009,23 @@ When opening a new chat:
 5. Deliver changes as copy-pasteable fragments for VS Code, not as
    whole-file replacements. Explain each fragment before presenting it.
 
-Phase 18 covers stereometry — light 3D depth estimation from two
-photos of the same damage:
+Phase 19 covers Web Workers — moving OpenCV processing off the main
+browser thread:
 
-  The inspector takes two photos of the same damage from slightly
-  different angles, both with the same ArUco marker visible. The
-  app aligns the two photos using the marker as an anchor, then
-  estimates depth by triangulation (epipolar geometry). This adds
-  a third dimension to the measurement: not just the surface extent
-  of the damage, but its depth/relief.
+  Today the UI freezes briefly while OpenCV processes a photo (ArUco
+  detection, warpPerspective, undistort). On a high-resolution photo
+  from the Realme GT 7 Pro (2304×4096 px) this can take 1–3 seconds.
+  Moving that work to a Web Worker keeps the UI responsive throughout.
 
-  Prerequisites now met:
-  - Phase 17 lens calibration provides the camera intrinsics
-    (focal length, principal point) needed for accurate
-    triangulation. Without calibration, depth error would be
-    unacceptably high.
-  - The Realme GT 7 Pro profile is available in LENS_PROFILES.
+  Key decisions to make at the start of phase 19:
+  - Which operations move to the worker: at minimum detectArucoMarker,
+    rectifyImageWithMarker, undistortPhoto. Possibly also the stereo
+    triangulation.
+  - Communication pattern: postMessage with transferable ImageBitmap
+    objects to avoid copying pixel data.
+  - Loading OpenCV.js inside the worker: requires importScripts() and
+    a module-compatible build, or a wrapper approach.
 
-  Key decisions to make at the start of phase 18:
-  - Minimum baseline: how far apart must the two photos be for
-    reliable triangulation? (Typically 5–15% of the distance
-    to the subject.)
-  - Depth output format: numeric value in mm, or visual depth map?
-  - User flow: how does the inspector indicate "these two photos
-    are a stereo pair"? Session-based or explicit pairing?
-
-  Active branch to open: feature/phase-18-stereometry
-  Suggested commit message: `phase 18 complete: stereometry depth estimation`
-  Tag after merge to main: v1.4-stereometry
+  Active branch to open: feature/phase-19-web-workers
+  Suggested commit message: `phase 19 complete: Web Workers for OpenCV`
+  Tag after merge to main: v1.5-web-workers
