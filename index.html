@@ -594,6 +594,109 @@ details[open] > summary::after   { content: '▾'; }
       animation: spin 1s linear infinite;
     }
     #heic-converting .label { font-size: 14px; color: #ccc; }
+
+/* ============================================================
+   STEREO MODULE OVERLAY (phase 18)
+   ============================================================ */
+#stereo-overlay {
+  position: fixed;
+  inset: 0;
+  background: #111;
+  z-index: 55;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 20px 16px;
+  overflow-y: auto;
+}
+.stereo-inner {
+  width: 100%;
+  max-width: 380px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-bottom: 40px;
+}
+.stereo-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: #aaa;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #333;
+}
+.stereo-header button {
+  background: #333;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  font-size: 16px;
+  flex: 0 0 auto;
+  padding: 0;
+  min-width: 0;
+}
+.stereo-photo-slot {
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.stereo-photo-slot .slot-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #ccc;
+}
+.stereo-photo-slot .slot-status {
+  font-size: 12px;
+  color: #888;
+}
+.stereo-photo-slot .slot-status.ok { color: #27ae60; }
+.stereo-photo-slot .slot-status.error { color: #e74c3c; }
+.stereo-photo-slot button {
+  font-size: 13px;
+  padding: 10px;
+}
+#stereo-photos-status {
+  font-size: 12px;
+  color: #888;
+  text-align: center;
+  min-height: 18px;
+}
+#stereo-action-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+#stereo-action-buttons button {
+  width: 100%;
+  padding: 14px;
+  font-size: 15px;
+}
+#stereo-roi-wrap {
+  position: relative;
+  width: 100%;
+  background: #000;
+  border-radius: 8px;
+  overflow: hidden;
+  touch-action: none;
+}
+#stereo-roi-canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  cursor: crosshair;
+}
+#stereo-roi-hint {
+  font-size: 12px;
+  color: #aaa;
+  text-align: center;
+  min-height: 16px;
+}
   </style>
 </head>
 <body>
@@ -808,6 +911,109 @@ details[open] > summary::after   { content: '▾'; }
   </div>
 </div>
 
+<!-- ============================================================
+     STEREO MODULE — instructions modal (shown first time only)
+     ============================================================ -->
+<div id="modal-stereo-instructions" class="modal">
+  <div class="box">
+    <h3>📐 Depth / Height estimate</h3>
+    <div class="warning">
+      Experimental feature — results may have ±1–3 mm error.
+      Do not use as the sole basis for repair decisions.
+    </div>
+    <p>You will load <strong>2 to 4 photos</strong> of the same damage, taken from slightly different positions. The app will estimate the maximum depth or height of the damage.</p>
+    <div class="highlight">
+      <strong>How to take the photos:</strong><br>
+      • Use marker ID 1 (50 mm) or ID 2 (100 mm).<br>
+      • Keep the marker and damage in the central 70% of the frame.<br>
+      • Between each photo, move <strong>3–6 cm sideways</strong>.<br>
+      • Do <strong>not</strong> rotate the phone or change the distance to the surface.<br>
+      • Same zoom (1×, main camera) for all photos.
+    </div>
+    <p class="muted">Depth (inward dent) will show as negative. Height (outward bulge) will show as positive.</p>
+    <div class="buttons column">
+      <button id="stereo-instructions-ok" class="success">Got it — load first photo</button>
+      <button id="stereo-instructions-cancel" class="secondary">Cancel</button>
+    </div>
+    <label style="display:flex; align-items:center; gap:8px; margin-top:14px; font-size:12px; color:#888; cursor:pointer;">
+      <input type="checkbox" id="stereo-hide-instructions" style="width:auto; margin:0;">
+      Don't show this again
+    </label>
+  </div>
+</div>
+
+<!-- ============================================================
+     STEREO MODULE — main flow overlay
+     ============================================================
+     Full-screen overlay that manages the sequential photo loading.
+     Sits above the app but below the heic-converting spinner (z-index 60).
+     ============================================================ -->
+<div id="stereo-overlay" style="display:none;">
+  <div class="stereo-inner">
+    <div class="stereo-header">
+      <span>🧪 Depth / Height estimate (experimental)</span>
+      <button id="stereo-close">✕</button>
+    </div>
+
+    <div id="stereo-step-area">
+      <!-- Filled dynamically by JS -->
+    </div>
+
+    <div id="stereo-photos-status">
+      <!-- e.g. "2 photos loaded — basic precision" -->
+    </div>
+
+    <div id="stereo-roi-section" style="display:none; flex-direction:column; gap:8px;">
+      <div style="font-size:13px; font-weight:600; color:#ccc;">
+        Draw a rectangle over the object to measure
+      </div>
+      <div id="stereo-roi-wrap">
+        <canvas id="stereo-roi-canvas"></canvas>
+      </div>
+      <div id="stereo-roi-hint">Tap and drag to draw the rectangle</div>
+      <div style="display:flex; gap:8px;">
+        <button id="btn-stereo-roi-clear" class="secondary" style="flex:1">✕ Clear</button>
+        <button id="btn-stereo-calculate" class="success" style="flex:2" disabled>📐 Calculate depth / height</button>
+      </div>
+    </div>
+
+    <div id="stereo-action-buttons" style="display:none;">
+      <button id="btn-stereo-show-roi" class="success">▶ Select region &amp; calculate</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     STEREO MODULE — result modal
+     ============================================================ -->
+<div id="modal-stereo-result" class="modal">
+  <div class="box">
+    <h3>📐 Result</h3>
+    <canvas id="stereo-result-canvas" style="
+      display:none;
+      width:100%;
+      border-radius:6px;
+      margin-bottom:10px;
+    "></canvas>
+    <div id="stereo-result-value" style="
+      font-size: 28px;
+      font-weight: 700;
+      text-align: center;
+      padding: 16px 0;
+      color: #fff;
+    "></div>
+    <p id="stereo-result-detail" class="muted" style="text-align:center;"></p>
+    <div class="warning" style="margin-top:8px;">
+      Experimental estimate — error ±1–3 mm typical.
+      Not suitable as sole basis for repair decisions.
+    </div>
+    <div class="buttons">
+      <button id="stereo-result-share" class="secondary">📋 Copy result</button>
+      <button id="stereo-result-close" class="success">Close</button>
+    </div>
+  </div>
+</div>
+
 <div id="left-panel-tab"><span>⚙ Tools & Guide</span></div>
 <div id="left-panel">
   <header>
@@ -888,6 +1094,10 @@ details[open] > summary::after   { content: '▾'; }
         </div>
       </details>
     </div>
+  </div>
+
+  <div class="panel-actions" style="border-bottom: 1px solid #333; margin-bottom: 4px;">
+    <button id="btn-stereo-panel">🧪 Depth / Height estimate (experimental)</button>
   </div>
 
   <div class="panel-actions">

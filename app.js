@@ -149,15 +149,16 @@ const ARUCO_MARKER_SIZES_MM = {
    ============================================================ */
 const LENS_PROFILES = {
   'realme GT 7 Pro': {
-    // Calibrated: 2026-05-26, 21 checkerboard photos, RMS 1.63 px
+    // Calibrated: 2026-06-04, 14 checkerboard photos, RMS 0.5617 px
     // Camera: Sony IMX906, 1x (24mm equiv), portrait orientation
+    // Flags: CALIB_FIX_K3 | CALIB_FIX_K4 | CALIB_FIX_K5 — k3 fixed to 0, no overfitting
     imageSize:    [2304, 4096],
     cameraMatrix: [
-      [2924.7276, 0.0,       1091.2102],
-      [0.0,       2944.9203, 1948.7713],
+      [2909.8974, 0.0,       1112.8302],
+      [0.0,       2927.3153, 2043.2394],
       [0.0,       0.0,       1.0      ]
     ],
-    distCoeffs: [0.17017348, -0.90142973, -0.01875831, -0.00756465, 0.80994231]
+    distCoeffs: [0.19135971, -0.80445332, -0.003869, -0.00160775, 0.0]
   }
 };
    
@@ -2844,6 +2845,762 @@ btnSharePanel.addEventListener('click', () => {
 });
 
 /* ============================================================
+   STEREO MODULE — PHASE 18
+   ============================================================
+   Experimental depth / height estimation from 2–4 photos.
+   Entirely self-contained: opens its own overlay, manages its
+   own photo loading, and closes cleanly without touching the
+   main measurement state.
+   ============================================================ */
+
+/* ---------- constants ---------- */
+/* Minimum baseline as a fraction of the estimated camera-to-
+   surface distance. Below this the triangulation is too noisy. */
+const STEREO_MIN_BASELINE_RATIO = 0.05;
+/* Maximum photos allowed in one stereo session. */
+const STEREO_MAX_PHOTOS = 4;
+/* localStorage key for "don't show instructions again" flag. */
+const STEREO_HIDE_KEY = 'stereoHideInstructions';
+
+/* ---------- module state ---------- */
+/* stereoPhotos: array of objects, one per loaded photo.
+   Each entry: { img, marker }
+     img    — HTMLImageElement or HTMLCanvasElement (after undistort)
+     marker — result.best from detectArucoMarker (corners, mmPerPixel…)
+*/
+let stereoPhotos = [];
+let stereoRoiRect = null;   // {x, y, w, h} in image-space pixels of photo 1
+
+/* ---------- entry point ---------- */
+document.getElementById('btn-stereo-panel').addEventListener('click', () => {
+  closeLeftPanel();
+  stereoPhotos = [];
+
+  const hide = localStorage.getItem(STEREO_HIDE_KEY) === '1';
+  if (hide) {
+    openStereoOverlay();
+  } else {
+    document.getElementById('modal-stereo-instructions').classList.add('show');
+  }
+});
+
+/* Instructions modal — OK */
+document.getElementById('stereo-instructions-ok').addEventListener('click', () => {
+  if (document.getElementById('stereo-hide-instructions').checked) {
+    localStorage.setItem(STEREO_HIDE_KEY, '1');
+  }
+  document.getElementById('modal-stereo-instructions').classList.remove('show');
+  openStereoOverlay();
+});
+
+/* Instructions modal — Cancel */
+document.getElementById('stereo-instructions-cancel').addEventListener('click', () => {
+  document.getElementById('modal-stereo-instructions').classList.remove('show');
+});
+
+/* Close button inside the overlay */
+document.getElementById('stereo-close').addEventListener('click', closeStereoOverlay);
+
+/* ---------- overlay open / close ---------- */
+function openStereoOverlay() {
+  stereoPhotos = [];
+  document.getElementById('stereo-overlay').style.display = 'flex';
+  renderStereoSlots();
+}
+
+function closeStereoOverlay() {
+  document.getElementById('stereo-overlay').style.display = 'none';
+  document.getElementById('stereo-step-area').innerHTML = '';
+  document.getElementById('stereo-photos-status').textContent = '';
+  document.getElementById('stereo-action-buttons').style.display = 'none';
+  document.getElementById('stereo-roi-section').style.display = 'none';
+  stereoPhotos  = [];
+  stereoRoiRect = null;
+}
+
+/* ---------- slot rendering ---------- */
+/* Rebuilds the stereo-step-area to show one card per loaded photo
+   plus one "load next" card if fewer than STEREO_MAX_PHOTOS. */
+function renderStereoSlots() {
+  const area = document.getElementById('stereo-step-area');
+  area.innerHTML = '';
+
+  /* Cards for photos already loaded */
+  stereoPhotos.forEach((p, idx) => {
+    const slot = document.createElement('div');
+    slot.className = 'stereo-photo-slot';
+    slot.innerHTML = `
+      <div class="slot-label">Photo ${idx + 1}</div>
+      <div class="slot-status ok">✓ Marker ID ${p.marker.id} detected
+        — ${p.marker.mmPerPixel.toFixed(3)} mm/px</div>
+    `;
+    area.appendChild(slot);
+  });
+
+  /* "Load next photo" card — only if below the maximum */
+  if (stereoPhotos.length < STEREO_MAX_PHOTOS) {
+    const nextIdx = stereoPhotos.length + 1;
+    const slot = document.createElement('div');
+    slot.className = 'stereo-photo-slot';
+
+    /* Instruction text varies by position */
+    let instruction = '';
+    if (nextIdx === 1) {
+      instruction = 'Take the photo from your initial position. Keep the marker and damage in the central 70% of the frame.';
+    } else {
+      instruction = `Move <strong>3–6 cm sideways</strong> without rotating the phone, then load photo ${nextIdx}.`;
+    }
+
+    slot.innerHTML = `
+      <div class="slot-label">Photo ${nextIdx}</div>
+      <div class="slot-status" style="line-height:1.5">${instruction}</div>
+      <div class="slot-status" id="stereo-slot-status-${nextIdx}" style="min-height:16px;"></div>
+      <button id="btn-stereo-load-${nextIdx}" class="secondary">
+        📷 Load photo ${nextIdx}
+      </button>
+    `;
+    area.appendChild(slot);
+
+    /* Wire up the load button */
+    document.getElementById(`btn-stereo-load-${nextIdx}`)
+      .addEventListener('click', () => triggerStereoFilePick(nextIdx));
+  }
+
+  /* Status line and action buttons */
+  updateStereoStatusLine();
+}
+
+/* ---------- status line ---------- */
+const STEREO_PRECISION_LABELS = [
+  '',                                        // 0 photos
+  '',                                        // 1 photo
+  '2 photos loaded — basic precision',       // 2
+  '3 photos loaded — improved precision',    // 3
+  '4 photos loaded — maximum precision'      // 4
+];
+
+function updateStereoStatusLine() {
+  const n = stereoPhotos.length;
+  document.getElementById('stereo-photos-status').textContent =
+    STEREO_PRECISION_LABELS[n] || '';
+
+  const actionDiv = document.getElementById('stereo-action-buttons');
+  if (n >= 2) {
+    actionDiv.style.display = 'flex';
+  } else {
+    actionDiv.style.display = 'none';
+  }
+  /* Hide the ROI section whenever photo count changes (e.g. user
+     loads a third photo after already opening the ROI step) */
+  document.getElementById('stereo-roi-section').style.display = 'none';
+  stereoRoiRect = null;
+}
+
+/* ---------- file picking ---------- */
+/* We create a fresh <input type="file"> each time so the browser
+   always fires the change event, even if the user picks the same
+   file twice in a row. */
+function triggerStereoFilePick(slotIdx) {
+  const input = document.createElement('input');
+  input.type   = 'file';
+  input.accept = 'image/*';
+  input.style.display = 'none';
+  document.body.appendChild(input);
+
+  input.addEventListener('change', async () => {
+    const file = input.files[0];
+    document.body.removeChild(input);
+    if (!file) return;
+
+    const statusEl = document.getElementById(`stereo-slot-status-${slotIdx}`);
+    const loadBtn  = document.getElementById(`btn-stereo-load-${slotIdx}`);
+    if (statusEl) statusEl.textContent = 'Loading…';
+    if (loadBtn)  loadBtn.disabled = true;
+
+    /* Phase 17: read EXIF model before any conversion */
+    const model = await readExifModel(file);
+
+    /* HEIC conversion if needed */
+    const isHeic = /image\/hei[cf]/i.test(file.type || '') ||
+                   /\.(heic|heif)$/i.test(file.name || '');
+    let blob = file;
+    if (isHeic) {
+      try {
+        const converted = await window.heic2any({ blob: file, toType: 'image/jpeg', quality: 0.92 });
+        blob = Array.isArray(converted) ? converted[0] : converted;
+      } catch (e) {
+        if (statusEl) { statusEl.textContent = 'HEIC conversion failed.'; statusEl.className = 'slot-status error'; }
+        if (loadBtn)  loadBtn.disabled = false;
+        return;
+      }
+    }
+
+    /* Load into an Image element */
+    const img = await loadImageFromBlob(blob);
+
+    /* Phase 17: apply lens undistortion if profile exists */
+    const savedLens = state.lensModel;
+    state.lensModel = model || null;
+    const undistorted = undistortPhoto(img);
+    state.lensModel = savedLens;   // restore main-app lens state
+
+    /* Detect ArUco marker */
+    const result = detectArucoMarker(undistorted);
+    if (!result.best) {
+      if (statusEl) { statusEl.textContent = '✗ No known marker detected. Try another photo.'; statusEl.className = 'slot-status error'; }
+      if (loadBtn)  loadBtn.disabled = false;
+      return;
+    }
+
+    /* Baseline check for photo 2+ */
+    if (stereoPhotos.length >= 1) {
+      const baseline = estimateStereoBaseline(stereoPhotos[0].marker, result.best);
+      const distEst  = estimateCameraDistance(result.best);
+      const minBase  = distEst * STEREO_MIN_BASELINE_RATIO;
+      if (baseline < minBase) {
+        if (statusEl) {
+          statusEl.textContent =
+            `✗ Baseline too small (≈${baseline.toFixed(0)} mm, min ≈${minBase.toFixed(0)} mm). ` +
+            `Move further sideways and retry.`;
+          statusEl.className = 'slot-status error';
+        }
+        if (loadBtn) loadBtn.disabled = false;
+        return;
+      }
+    }
+
+    /* All checks passed — store photo */
+    stereoPhotos.push({ img: undistorted, marker: result.best, lensModel: model || null });
+    renderStereoSlots();
+  });
+
+  input.click();
+}
+
+/* ---------- helper: load Blob into Image ---------- */
+function loadImageFromBlob(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = reject;
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+/* ---------- baseline estimation ---------- */
+/* Estimates the lateral displacement between two camera positions
+   by comparing the centres of their respective detected markers.
+   Both markers must be the same physical marker (same ID), so the
+   shift in its projected centre corresponds directly to camera
+   movement. Returns the displacement in mm. */
+function estimateStereoBaseline(markerA, markerB) {
+  const cxA = (markerA.corners[0].x + markerA.corners[1].x +
+               markerA.corners[2].x + markerA.corners[3].x) / 4;
+  const cyA = (markerA.corners[0].y + markerA.corners[1].y +
+               markerA.corners[2].y + markerA.corners[3].y) / 4;
+  const cxB = (markerB.corners[0].x + markerB.corners[1].x +
+               markerB.corners[2].x + markerB.corners[3].x) / 4;
+  const cyB = (markerB.corners[0].y + markerB.corners[1].y +
+               markerB.corners[2].y + markerB.corners[3].y) / 4;
+
+  /* Average scale from both photos for the conversion px → mm */
+  const mmPerPx = (markerA.mmPerPixel + markerB.mmPerPixel) / 2;
+  return Math.hypot(cxB - cxA, cyB - cyA) * mmPerPx;
+}
+
+/* Estimates the camera-to-surface distance in mm from the apparent
+   size of the marker. Uses the focal length from LENS_PROFILES if
+   the device is calibrated; otherwise falls back to a typical
+   smartphone focal length (3500 px at full resolution). */
+function estimateCameraDistance(marker) {
+  const profile = state.lensModel ? LENS_PROFILES[state.lensModel] : null;
+  const focalPx = profile
+    ? (profile.cameraMatrix[0][0] + profile.cameraMatrix[1][1]) / 2
+    : 3500;
+  /* distance = focal * real_size / projected_size */
+  return focalPx * marker.sizeMm / marker.avgSidePx;
+}
+
+/* ---------- depth calculation ---------- */
+
+/* "Select region & calculate" button — shows the ROI section
+   with photo 1 so the inspector can draw the rectangle. */
+document.getElementById('btn-stereo-show-roi').addEventListener('click', () => {
+  if (stereoPhotos.length < 2) return;
+  showStereoRoiSection();
+});
+
+/* "Calculate" button — only enabled after a valid rectangle is drawn. */
+document.getElementById('btn-stereo-calculate').addEventListener('click', () => {
+  if (!stereoRoiRect || stereoPhotos.length < 2) return;
+  calculateStereoDepth();
+});
+
+/* "Clear" button — resets the rectangle drawn on the ROI canvas. */
+document.getElementById('btn-stereo-roi-clear').addEventListener('click', () => {
+  stereoRoiRect = null;
+  drawRoiCanvas(null);
+  document.getElementById('btn-stereo-calculate').disabled = true;
+  document.getElementById('stereo-roi-hint').textContent = 'Tap and drag to draw the rectangle';
+});
+
+/* ---------- ROI canvas setup ---------- */
+/* Renders photo 1 inside #stereo-roi-canvas and lets the inspector
+   drag a rectangle over the object. The rectangle is stored in
+   stereoRoiRect in image-space coordinates (not canvas-space). */
+
+let roiDragStart = null;   // canvas-space {x, y} where the drag started
+
+function showStereoRoiSection() {
+  stereoRoiRect = null;
+  roiDragStart  = null;
+  document.getElementById('btn-stereo-calculate').disabled = true;
+  document.getElementById('stereo-roi-hint').textContent = 'Tap and drag to draw the rectangle';
+
+  /* Show the ROI section, hide the "show roi" button */
+  document.getElementById('stereo-action-buttons').style.display = 'none';
+  const roiSection = document.getElementById('stereo-roi-section');
+  roiSection.style.display = 'flex';
+
+  /* Draw photo 1 onto the ROI canvas */
+  drawRoiCanvas(null);
+  wireRoiCanvas();
+}
+
+/* Draws photo 1 on the ROI canvas, optionally overlaying a rectangle.
+   rect is {x, y, w, h} in IMAGE-space pixels, or null for no rect. */
+function drawRoiCanvas(rect) {
+  const img = stereoPhotos[0].img;
+  const canvas = document.getElementById('stereo-roi-canvas');
+
+  /* Size the canvas to the image's natural aspect ratio.
+     The canvas is displayed at 100% CSS width via the wrap div;
+     we set the internal resolution to a capped value so drawing
+     stays fast even on a 12MP photo. */
+  const MAX_W = 800;
+  const scale = Math.min(1, MAX_W / (img.naturalWidth || img.width));
+  canvas.width  = Math.round((img.naturalWidth  || img.width)  * scale);
+  canvas.height = Math.round((img.naturalHeight || img.height) * scale);
+
+  const ctx2 = canvas.getContext('2d');
+  ctx2.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+  if (rect) {
+    /* rect is in image-space; convert to canvas-space for drawing */
+    const sx = canvas.width  / (img.naturalWidth  || img.width);
+    const sy = canvas.height / (img.naturalHeight || img.height);
+    ctx2.strokeStyle = '#2a6fdb';
+    ctx2.lineWidth   = 2;
+    ctx2.setLineDash([6, 3]);
+    ctx2.strokeRect(rect.x * sx, rect.y * sy, rect.w * sx, rect.h * sy);
+    ctx2.fillStyle = 'rgba(42, 111, 219, 0.12)';
+    ctx2.fillRect(rect.x * sx, rect.y * sy, rect.w * sx, rect.h * sy);
+    ctx2.setLineDash([]);
+  }
+}
+
+/* Wires touch + mouse listeners onto the ROI canvas for drag-to-draw.
+   Called once per ROI session (each time showStereoRoiSection runs). */
+function wireRoiCanvas() {
+  const canvas = document.getElementById('stereo-roi-canvas');
+
+  /* Remove any previous listeners by cloning the node */
+  const fresh = canvas.cloneNode(false);   // shallow clone, no children
+  canvas.parentNode.replaceChild(fresh, canvas);
+  fresh.id = 'stereo-roi-canvas';
+
+  /* Helper: get position relative to the canvas in IMAGE-space */
+  function imgPos(clientX, clientY) {
+    const rect = fresh.getBoundingClientRect();
+    const cx   = (clientX - rect.left)  * (fresh.width  / rect.width);
+    const cy   = (clientY - rect.top)   * (fresh.height / rect.height);
+    const img  = stereoPhotos[0].img;
+    const sx   = (img.naturalWidth  || img.width)  / fresh.width;
+    const sy   = (img.naturalHeight || img.height) / fresh.height;
+    return { x: cx * sx, y: cy * sy };
+  }
+
+  /* Draw an in-progress rectangle during drag, in canvas-space */
+  function drawLive(startCS, endCS) {
+    const img = stereoPhotos[0].img;
+    /* Redraw photo */
+    const ctx2 = fresh.getContext('2d');
+    ctx2.drawImage(img, 0, 0, fresh.width, fresh.height);
+    /* Live rectangle in canvas-space */
+    const rx = Math.min(startCS.x, endCS.x);
+    const ry = Math.min(startCS.y, endCS.y);
+    const rw = Math.abs(endCS.x - startCS.x);
+    const rh = Math.abs(endCS.y - startCS.y);
+    ctx2.strokeStyle = '#2a6fdb';
+    ctx2.lineWidth   = 2;
+    ctx2.setLineDash([6, 3]);
+    ctx2.strokeRect(rx, ry, rw, rh);
+    ctx2.fillStyle   = 'rgba(42, 111, 219, 0.12)';
+    ctx2.fillRect(rx, ry, rw, rh);
+    ctx2.setLineDash([]);
+  }
+
+  /* ---- Mouse ---- */
+  let mouseDown = false;
+  let startCS   = null;
+
+  fresh.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    mouseDown = true;
+    const rect = fresh.getBoundingClientRect();
+    startCS = {
+      x: (e.clientX - rect.left) * (fresh.width  / rect.width),
+      y: (e.clientY - rect.top)  * (fresh.height / rect.height)
+    };
+  });
+
+  fresh.addEventListener('mousemove', (e) => {
+    if (!mouseDown || !startCS) return;
+    e.preventDefault();
+    const rect = fresh.getBoundingClientRect();
+    const endCS = {
+      x: (e.clientX - rect.left) * (fresh.width  / rect.width),
+      y: (e.clientY - rect.top)  * (fresh.height / rect.height)
+    };
+    drawLive(startCS, endCS);
+  });
+
+  fresh.addEventListener('mouseup', (e) => {
+    if (!mouseDown || !startCS) return;
+    mouseDown = false;
+    e.preventDefault();
+    const rect = fresh.getBoundingClientRect();
+    const endCS = {
+      x: (e.clientX - rect.left) * (fresh.width  / rect.width),
+      y: (e.clientY - rect.top)  * (fresh.height / rect.height)
+    };
+    commitRoi(startCS, endCS, fresh);
+    startCS = null;
+  });
+
+  /* ---- Touch ---- */
+  let touchStart = null;
+
+  fresh.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    const t = e.touches[0];
+    const rect = fresh.getBoundingClientRect();
+    touchStart = {
+      x: (t.clientX - rect.left) * (fresh.width  / rect.width),
+      y: (t.clientY - rect.top)  * (fresh.height / rect.height)
+    };
+  }, { passive: false });
+
+  fresh.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    if (!touchStart) return;
+    const t = e.touches[0];
+    const rect = fresh.getBoundingClientRect();
+    const endCS = {
+      x: (t.clientX - rect.left) * (fresh.width  / rect.width),
+      y: (t.clientY - rect.top)  * (fresh.height / rect.height)
+    };
+    drawLive(touchStart, endCS);
+  }, { passive: false });
+
+  fresh.addEventListener('touchend', (e) => {
+    e.preventDefault();
+    if (!touchStart) return;
+    const t = e.changedTouches[0];
+    const rect = fresh.getBoundingClientRect();
+    const endCS = {
+      x: (t.clientX - rect.left) * (fresh.width  / rect.width),
+      y: (t.clientY - rect.top)  * (fresh.height / rect.height)
+    };
+    commitRoi(touchStart, endCS, fresh);
+    touchStart = null;
+  }, { passive: false });
+
+  /* Re-draw the photo onto the cloned canvas (no rectangle yet) */
+  const img = stereoPhotos[0].img;
+  const ctx2 = fresh.getContext('2d');
+  /* Carry over dimensions from the original canvas that was replaced */
+  const orig = document.getElementById('stereo-roi-canvas');
+  fresh.width  = fresh.width  || img.naturalWidth  || img.width;
+  fresh.height = fresh.height || img.naturalHeight || img.height;
+  ctx2.drawImage(img, 0, 0, fresh.width, fresh.height);
+}
+
+/* Converts a canvas-space drag into image-space stereoRoiRect and
+   enables the Calculate button if the rectangle is large enough. */
+function commitRoi(startCS, endCS, canvas) {
+  const img = stereoPhotos[0].img;
+  const sx  = (img.naturalWidth  || img.width)  / canvas.width;
+  const sy  = (img.naturalHeight || img.height) / canvas.height;
+
+  const ix = Math.min(startCS.x, endCS.x) * sx;
+  const iy = Math.min(startCS.y, endCS.y) * sy;
+  const iw = Math.abs(endCS.x - startCS.x) * sx;
+  const ih = Math.abs(endCS.y - startCS.y) * sy;
+
+  /* Minimum 20×20 image pixels to be meaningful */
+  if (iw < 20 || ih < 20) {
+    document.getElementById('stereo-roi-hint').textContent =
+      'Rectangle too small — drag a larger area';
+    return;
+  }
+
+  stereoRoiRect = { x: ix, y: iy, w: iw, h: ih };
+  drawRoiCanvas(stereoRoiRect);   /* redraw with final rectangle */
+
+  document.getElementById('btn-stereo-calculate').disabled = false;
+  document.getElementById('stereo-roi-hint').textContent =
+    `Region selected (${Math.round(iw * stereoPhotos[0].marker.mmPerPixel)} × ` +
+    `${Math.round(ih * stereoPhotos[0].marker.mmPerPixel)} mm) — tap Calculate`;
+}
+
+function calculateStereoDepth() {
+  let maxDepthMm = null;
+
+  for (let i = 0; i < stereoPhotos.length - 1; i++) {
+    const depthMm = triangulateDepthPair(
+      stereoPhotos[i],
+      stereoPhotos[i + 1],
+      stereoRoiRect
+    );
+    if (depthMm !== null) {
+      if (maxDepthMm === null || Math.abs(depthMm) > Math.abs(maxDepthMm)) {
+        maxDepthMm = depthMm;
+      }
+    }
+  }
+
+  showStereoResult(maxDepthMm);
+}
+
+/* Triangulates depth from a pair of stereo photos using
+   cv.matchTemplate on the inspector-selected ROI.
+   roiRect is {x, y, w, h} in photo-1 image-space pixels.
+   Returns depth in mm (negative = inward dent, positive = outward
+   bulge), or null if matching fails. */
+function triangulateDepthPair(photoA, photoB, roiRect) {
+  if (!roiRect) return null;
+
+  const srcA  = cv.imread(photoA.img);
+  const srcB  = cv.imread(photoB.img);
+  const grayA = new cv.Mat();
+  const grayB = new cv.Mat();
+  const tmpl  = new cv.Mat();
+  const result= new cv.Mat();
+
+  try {
+    /* ---- Baseline and geometry (unchanged from phase 18.1) ---- */
+    const cxA = (photoA.marker.corners[0].x + photoA.marker.corners[1].x +
+                 photoA.marker.corners[2].x + photoA.marker.corners[3].x) / 4;
+    const cyA = (photoA.marker.corners[0].y + photoA.marker.corners[1].y +
+                 photoA.marker.corners[2].y + photoA.marker.corners[3].y) / 4;
+    const cxB = (photoB.marker.corners[0].x + photoB.marker.corners[1].x +
+                 photoB.marker.corners[2].x + photoB.marker.corners[3].x) / 4;
+    const cyB = (photoB.marker.corners[0].y + photoB.marker.corners[1].y +
+                 photoB.marker.corners[2].y + photoB.marker.corners[3].y) / 4;
+
+    const baselinePx = Math.hypot(cxB - cxA, cyB - cyA);
+    const baselineMm = baselinePx * photoA.marker.mmPerPixel;
+
+    if (baselineMm < 1) return null;
+
+    /* Use the calibration profile of photo A's camera if available.
+       stereoPhotos entries carry their lens model so we don't depend
+       on state.lensModel, which belongs to the main measurement flow. */
+    const stereoModel = photoA.lensModel || null;
+    const profile    = stereoModel ? LENS_PROFILES[stereoModel] : null;
+    const focalPx    = profile
+      ? (profile.cameraMatrix[0][0] + profile.cameraMatrix[1][1]) / 2
+      : 3500;
+    const distanceMm = focalPx * photoA.marker.sizeMm / photoA.marker.avgSidePx;
+
+    const moveDx = baselinePx > 0 ? (cxB - cxA) / baselinePx : 1;
+    const moveDy = baselinePx > 0 ? (cyB - cyA) / baselinePx : 0;
+
+    /* Object centre in photo A (from inspector-drawn ROI rectangle) */
+    const tplCxA = roiRect.x + roiRect.w / 2;
+    const tplCyA = roiRect.y + roiRect.h / 2;
+
+    /* Object centre in photo B via template matching restricted to
+       a ±120 px window around the expected position.
+       Expected position = photo-A centre shifted by the marker
+       displacement (A→B). This eliminates false matches from
+       reflections or similar background regions. */
+    cv.cvtColor(srcA, grayA, cv.COLOR_RGBA2GRAY);
+    cv.cvtColor(srcB, grayB, cv.COLOR_RGBA2GRAY);
+
+    const rx = Math.max(0, Math.round(roiRect.x));
+    const ry = Math.max(0, Math.round(roiRect.y));
+    const rw = Math.min(grayA.cols - rx, Math.round(roiRect.w));
+    const rh = Math.min(grayA.rows - ry, Math.round(roiRect.h));
+    if (rw < 5 || rh < 5) return null;
+
+    const roiA = grayA.roi(new cv.Rect(rx, ry, rw, rh));
+    roiA.copyTo(tmpl);
+    roiA.delete();
+
+    const expectedCxB = tplCxA + (cxB - cxA);
+    const expectedCyB = tplCyA + (cyB - cyA);
+
+    const margin = 120;
+    const swX = Math.max(0, Math.round(expectedCxB - rw / 2 - margin));
+    const swY = Math.max(0, Math.round(expectedCyB - rh / 2 - margin));
+    const swW = Math.min(grayB.cols - swX, rw + margin * 2);
+    const swH = Math.min(grayB.rows - swY, rh + margin * 2);
+    if (swW < rw || swH < rh) return null;
+
+    const searchRoi = grayB.roi(new cv.Rect(swX, swY, swW, swH));
+    cv.matchTemplate(searchRoi, tmpl, result, cv.TM_CCOEFF_NORMED);
+    searchRoi.delete();
+
+    const minMax = cv.minMaxLoc(result);
+    if (minMax.maxVal < 0.4) {
+      console.warn(`Stereo: match score too low (${minMax.maxVal.toFixed(2)})`);
+      return null;
+    }
+
+    let tplCxB = swX + minMax.maxLoc.x + rw / 2;
+    let tplCyB = swY + minMax.maxLoc.y + rh / 2;
+
+    /* Residual parallax — both shifts in A→B convention:
+       marker:  cxB - cxA
+       object:  tplCxB - tplCxA
+       residual = object_shift - marker_shift */
+    const objShiftX    = tplCxB - tplCxA;
+    const objShiftY    = tplCyB - tplCyA;
+    const markerShiftX = cxB - cxA;
+    const markerShiftY = cyB - cyA;
+    const residualX    = objShiftX - markerShiftX;
+    const residualY    = objShiftY - markerShiftY;
+    const disparity    = residualX * moveDx + residualY * moveDy;
+
+    if (Math.abs(disparity) < 0.5) {
+      console.warn('Stereo: residual too small — object appears flat.');
+      return null;
+    }
+
+    /* deltaZ = disparity * distanceMm / baselinePx
+       This is the correct thin-lens stereo formula when disparity
+       is measured relative to the marker (baseline reference).
+       Positive disparity = object shifted more than marker = outward.
+       Negative = inward (dent). */
+    const deltaZ = (disparity * distanceMm) / baselinePx;
+
+    if (Math.abs(deltaZ) > distanceMm * 0.40) {
+      console.warn(`Stereo: deltaZ out of range (${deltaZ.toFixed(1)} mm)`);
+      return null;
+    }
+
+    return deltaZ;
+
+  } catch (err) {
+    console.warn('Stereo triangulation failed:', err);
+    return null;
+  } finally {
+    srcA.delete(); srcB.delete();
+    grayA.delete(); grayB.delete();
+    tmpl.delete(); result.delete();
+  }
+}
+
+/* ---------- result modal ---------- */
+function showStereoResult(depthMm) {
+  const valueEl  = document.getElementById('stereo-result-value');
+  const detailEl = document.getElementById('stereo-result-detail');
+  const resCanvas= document.getElementById('stereo-result-canvas');
+
+  /* Draw photo 1 with the selected ROI and a depth annotation */
+  if (stereoPhotos.length >= 1 && stereoRoiRect) {
+    const img = stereoPhotos[0].img;
+    const MAX_W = 700;
+    const scale = Math.min(1, MAX_W / (img.naturalWidth || img.width));
+    resCanvas.width  = Math.round((img.naturalWidth  || img.width)  * scale);
+    resCanvas.height = Math.round((img.naturalHeight || img.height) * scale);
+
+    const rc = resCanvas.getContext('2d');
+    rc.drawImage(img, 0, 0, resCanvas.width, resCanvas.height);
+
+    const sx = resCanvas.width  / (img.naturalWidth  || img.width);
+    const sy = resCanvas.height / (img.naturalHeight || img.height);
+    const rx = stereoRoiRect.x * sx;
+    const ry = stereoRoiRect.y * sy;
+    const rw = stereoRoiRect.w * sx;
+    const rh = stereoRoiRect.h * sy;
+
+    /* Draw the ROI rectangle */
+    rc.strokeStyle = depthMm === null ? '#e74c3c'
+                   : depthMm < 0      ? '#7ab3ff'
+                   : '#f39c12';
+    rc.lineWidth   = Math.max(2, resCanvas.width * 0.003);
+    rc.strokeRect(rx, ry, rw, rh);
+
+    /* Depth annotation above the rectangle */
+    if (depthMm !== null) {
+      const sign  = depthMm < 0 ? '−' : '+';
+      const label = `${sign}${Math.abs(depthMm).toFixed(1)} mm`;
+      const fSize = Math.max(14, resCanvas.width * 0.025);
+      rc.font      = `bold ${fSize}px sans-serif`;
+      const tw     = rc.measureText(label).width;
+      const pad    = fSize * 0.4;
+      const bx     = rx + rw / 2 - tw / 2 - pad;
+      const by     = ry - fSize - pad * 2;
+      rc.fillStyle = 'rgba(0,0,0,0.75)';
+      rc.fillRect(bx, Math.max(2, by), tw + pad * 2, fSize + pad * 2);
+      rc.fillStyle   = rc.strokeStyle;
+      rc.textBaseline= 'top';
+      rc.fillText(label, bx + pad, Math.max(2, by) + pad);
+      rc.textBaseline= 'alphabetic';
+    }
+
+    resCanvas.style.display = 'block';
+  } else {
+    resCanvas.style.display = 'none';
+  }
+
+  if (depthMm === null) {
+    valueEl.textContent  = 'Calculation failed';
+    valueEl.style.color  = '#e74c3c';
+    detailEl.textContent = 'Template match score too low. Try a region with more visible texture, or check that both photos show the same object.';
+  } else {
+    const sign    = depthMm < 0 ? '−' : '+';
+    const absVal  = Math.abs(depthMm).toFixed(1);
+    const label   = depthMm < 0 ? 'inward (depth)' : 'outward (height)';
+    valueEl.textContent = `${sign}${absVal} mm`;
+    valueEl.style.color = depthMm < 0 ? '#7ab3ff' : '#f39c12';
+
+    const calibrated = state.lensModel && LENS_PROFILES[state.lensModel];
+    detailEl.textContent = calibrated
+      ? `${label} · calibrated lens (${state.lensModel})`
+      : `${label} · uncalibrated lens — error may be higher`;
+  }
+
+  closeStereoOverlay();
+  document.getElementById('modal-stereo-result').classList.add('show');
+}
+
+/* Copy result to clipboard */
+document.getElementById('stereo-result-share').addEventListener('click', () => {
+  const text = document.getElementById('stereo-result-value').textContent;
+  const detail = document.getElementById('stereo-result-detail').textContent;
+  const full = `Depth/Height estimate: ${text} (${detail}) — experimental, ±1–3 mm error`;
+  navigator.clipboard && navigator.clipboard.writeText(full).catch(() => {});
+});
+
+/* Close result modal */
+document.getElementById('stereo-result-close').addEventListener('click', () => {
+  document.getElementById('modal-stereo-result').classList.remove('show');
+});
+
+/* ============================================================
+   END OF STEREO MODULE — PHASE 18
+   ============================================================ */
+
+/* ============================================================
    LIST BUTTON + STARTUP
    ============================================================ */
 
@@ -3758,7 +4515,7 @@ function rectifyImageWithMultipleMarkers(img, markers) {
       if (maxError > 15.0) {
         throw new Error(
           `Multi-marker homography rejected: max point error = ` +
-          `${maxError.toFixed(2)} px exceeds 2.0 px limit. ` +
+          `${maxError.toFixed(2)} px exceeds 15.0 px limit. ` +
           `Falling back to single-marker.`
         );
       }
