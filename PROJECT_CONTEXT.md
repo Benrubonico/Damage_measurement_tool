@@ -297,8 +297,17 @@ this project.
     deltaZ = disparity * distanceMm / baselinePx. Validated
     experimentally: ~15–25% error on non-reflective surfaces.
     Marked experimental in UI. Tag v1.4-stereometry.
-19. ⏸ ONNX Runtime Web: custom-trained vehicle damage model in browser.
-20. ⏸ Real-time capture assistant: live ArUco + guidance overlay.
+19. ⏸ ONNX Runtime Web (phase 21): custom-trained damage model in
+    browser. Prerequisite: P2 (trained .onnx ready). Next active phase.
+20. ❌ Real-time capture assistant: DISCARDED. getUserMedia() on mobile
+    gives inferior image quality vs native camera. Native camera
+    workflow already covers the operational need.
+21. ⏸ ONNX Runtime Web (basic): integrate .onnx model for client-side
+    damage detection on static photos.
+23. ⏸ Domain-aware ONNX: detect rivets and panel edges, propose
+    automatic cota measurements (distance from damage to nearest rivet).
+24. ⏸ AI-generated inspection report: send dimension JSON to Azure
+    OpenAI, receive structured narrative report. No images to API.
 
 ## Distribution strategy
 
