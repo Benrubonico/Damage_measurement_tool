@@ -933,6 +933,18 @@ let onnxSession = null;
 async function initOnnxModel() {
   if (!ONNX_ENABLED) return;
   try {
+    /* Wait for ort to be defined — ort.min.js loads async so it
+       may not be available yet when initApp() runs. Poll in the
+       same way the app waits for cv to be ready. */
+    await new Promise((resolve, reject) => {
+      if (typeof ort !== 'undefined') { resolve(); return; }
+      let attempts = 0;
+      const poll = setInterval(() => {
+        attempts++;
+        if (typeof ort !== 'undefined') { clearInterval(poll); resolve(); }
+        else if (attempts > 100) { clearInterval(poll); reject(new Error('ort.min.js did not load after 10s')); }
+      }, 100);
+    });
     /* Tell ORT where to find the .wasm files — they live in lib/
        alongside ort.min.js so the relative path is the same. */
     ort.env.wasm.wasmPaths = './lib/';
