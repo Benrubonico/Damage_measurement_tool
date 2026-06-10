@@ -197,6 +197,32 @@ const DIM_OFFSET_DEFAULT = -40;
 const AUTO_DETECT_WINDOW_MM = 120;
 
 /* ============================================================
+   ONNX DAMAGE DETECTION (phase 21)
+   ============================================================
+   ONNX_ENABLED: set to false to disable the damage detector
+   entirely. The app works exactly as before (no model loaded,
+   no inference run).
+
+   ONNX_CONFIDENCE_THRESHOLD: detections below this score are
+   discarded. 0.35 = 35% confidence minimum. Raise to reduce
+   false positives; lower to catch more damage at the cost of
+   more noise.
+
+   ONNX_MODEL_PATH: path to the .onnx file relative to the
+   app root. The model is served as a static file alongside
+   the other assets.
+   ============================================================ */
+const ONNX_ENABLED            = true;
+const ONNX_CONFIDENCE_THRESHOLD = 0.35;
+const ONNX_MODEL_PATH         = './lib/best.onnx';
+
+/* Class names in the same order as the model was trained.
+   Index 0 = crack, 1 = dent, 2 = paint-off, 3 = scratch.
+   These must match the classes in data.yaml exactly. */
+const ONNX_CLASS_NAMES  = ['crack', 'dent', 'paint-off', 'scratch'];
+const ONNX_CLASS_COLORS = ['#e53935', '#ff9800', '#ffeb3b', '#2a6fdb'];
+
+/* ============================================================
    AUTH / LOGIN
    ============================================================
    HOW TO CONFIGURE:
@@ -415,6 +441,9 @@ const state = {
   rectEnd: null,           // image-space {x,y} of the opposite corner while dragging; null when inactive
   pendingRectProposal: null, // result of suggestDamageEndpointsInRect(), held while modal is open
   lensModel: null,          // EXIF Model string of the photo's camera, or null (phase 17)
+
+  /* ---- ONNX detections (phase 21) ---- */
+  onnxDetections: [],       // array of {label, confidence, x, y, w, h} in image-space px
 };
 
 const welcome = document.getElementById('welcome');
@@ -691,6 +720,7 @@ function loadPhotoFromBlob(blob) {
       state.annotationHistory = [];
       state.currentStroke = null;
       state.heatmapCanvas = null;
+      state.onnxDetections = [];   // clear previous detections on new photo
       state.showSafeZone = true;   // shown until first point is placed
       resetZoom();
       /* Phase 17: apply lens undistortion if a profile exists for
@@ -882,6 +912,187 @@ function applyAutoCalibration(marker, tilted, allMarkers) {
   state.calibMarkerId = marker.id;
   state.calibTilted   = tilted;
   setPhase('measure-idle');
+
+  /* Phase 21: run ONNX detection after calibration is complete.
+     Async — does not block the UI. If it fails, state.onnxDetections
+     stays empty and the app continues normally. */
+  if (ONNX_ENABLED) runOnnxDetection();
+}
+
+/* ============================================================
+   ONNX MODEL INITIALISATION (phase 21)
+   ============================================================
+   Called once at app startup. Loads the model in the background
+   while the inspector picks a photo. onnxSession is kept as a
+   variable inside initApp() so all functions below can access it.
+   If loading fails (file missing, incompatible model), onnxSession
+   stays null and all inference calls are silently skipped.
+   ============================================================ */
+let onnxSession = null;
+
+async function initOnnxModel() {
+  if (!ONNX_ENABLED) return;
+  try {
+    /* Tell ORT where to find the .wasm files — they live in lib/
+       alongside ort.min.js so the relative path is the same. */
+    ort.env.wasm.wasmPaths = './lib/';
+    onnxSession = await ort.InferenceSession.create(ONNX_MODEL_PATH, {
+      executionProviders: ['wasm']
+    });
+    console.log('Phase 21: ONNX model loaded OK. Input:',
+      Object.keys(onnxSession.inputNames),
+      'Output:', Object.keys(onnxSession.outputNames));
+  } catch (err) {
+    console.warn('Phase 21: ONNX model failed to load — detection disabled.', err);
+    onnxSession = null;
+  }
+}
+
+/* ============================================================
+   ONNX PREPROCESSING (phase 21)
+   ============================================================
+   YOLOv8 expects a 640×640 RGB image normalised to [0, 1] as a
+   flat Float32Array in BCHW format:
+     B = batch size (always 1 here)
+     C = channels (3: red, green, blue — separate planes)
+     H = height (640)
+     W = width (640)
+
+   We draw state.photo onto a 640×640 offscreen canvas (which
+   handles the resize automatically), read the RGBA pixels, and
+   rearrange them from interleaved RGBA into separate RGB planes.
+   Alpha channel is discarded.
+   ============================================================ */
+function preprocessForOnnx(photo) {
+  const SIZE = 640;
+  const offscreen = document.createElement('canvas');
+  offscreen.width  = SIZE;
+  offscreen.height = SIZE;
+  const octx = offscreen.getContext('2d');
+  octx.drawImage(photo, 0, 0, SIZE, SIZE);
+
+  const imageData = octx.getImageData(0, 0, SIZE, SIZE);
+  const pixels    = imageData.data;   // Uint8ClampedArray, RGBA interleaved
+
+  /* Allocate one Float32 per pixel per channel: 3 × 640 × 640 */
+  const tensor = new Float32Array(3 * SIZE * SIZE);
+  const planeSize = SIZE * SIZE;
+
+  for (let i = 0; i < planeSize; i++) {
+    tensor[i]                  = pixels[i * 4]     / 255;  // R plane
+    tensor[planeSize + i]      = pixels[i * 4 + 1] / 255;  // G plane
+    tensor[planeSize * 2 + i]  = pixels[i * 4 + 2] / 255;  // B plane
+  }
+
+  return new ort.Tensor('float32', tensor, [1, 3, SIZE, SIZE]);
+}
+
+/* ============================================================
+   ONNX INFERENCE + POSTPROCESSING (phase 21)
+   ============================================================
+   Runs the model on state.photo and stores results in
+   state.onnxDetections. Each detection is:
+     { label, confidence, x, y, w, h }
+   where x, y, w, h are in IMAGE-SPACE pixels (not 640×640 space).
+
+   YOLOv8 output shape: (1, 8, 8400)
+     8400 = candidate boxes
+     8    = [cx, cy, w, h, score_class0, score_class1, score_class2, score_class3]
+   All coordinates are in the 640×640 input space and must be
+   scaled back to the real image dimensions.
+
+   NMS (Non-Maximum Suppression): when two boxes overlap heavily
+   and detect the same class, we keep only the one with the higher
+   confidence. "Overlap heavily" means IoU > 0.45 (industry default).
+   IoU = Intersection over Union — the ratio of the overlapping area
+   to the total area covered by both boxes combined.
+   ============================================================ */
+async function runOnnxDetection() {
+  if (!onnxSession || !state.photo) return;
+
+  try {
+    const inputTensor = preprocessForOnnx(state.photo);
+    const inputName   = onnxSession.inputNames[0];
+    const feeds       = { [inputName]: inputTensor };
+    const results     = await onnxSession.run(feeds);
+    const outputName  = onnxSession.outputNames[0];
+    const output      = results[outputName].data;   // Float32Array, shape (1,8,8400)
+
+    /* output is stored in column-major order for YOLOv8:
+       output[attr * 8400 + box] — not row-major.
+       So output[0..8399] = all cx values, output[8400..16799] = all cy, etc. */
+    const numBoxes  = 8400;
+    const numAttrs  = 8;   // 4 coords + 4 class scores
+    const imgW = state.photo.width  || state.photo.naturalWidth;
+    const imgH = state.photo.height || state.photo.naturalHeight;
+    const scaleX = imgW / 640;
+    const scaleY = imgH / 640;
+
+    const raw = [];
+
+    for (let b = 0; b < numBoxes; b++) {
+      /* Find the class with the highest score for this box */
+      let bestClass = 0;
+      let bestScore = output[4 * numBoxes + b];   // score for class 0
+      for (let c = 1; c < 4; c++) {
+        const score = output[(4 + c) * numBoxes + b];
+        if (score > bestScore) { bestScore = score; bestClass = c; }
+      }
+
+      if (bestScore < ONNX_CONFIDENCE_THRESHOLD) continue;
+
+      /* cx, cy, w, h are in 640×640 space — scale to image space */
+      const cx = output[0 * numBoxes + b] * scaleX;
+      const cy = output[1 * numBoxes + b] * scaleY;
+      const bw = output[2 * numBoxes + b] * scaleX;
+      const bh = output[3 * numBoxes + b] * scaleY;
+
+      raw.push({
+        label:      ONNX_CLASS_NAMES[bestClass],
+        classIdx:   bestClass,
+        confidence: bestScore,
+        x: cx - bw / 2,   // convert centre → top-left
+        y: cy - bh / 2,
+        w: bw,
+        h: bh
+      });
+    }
+
+    /* NMS: sort by confidence descending, then suppress overlapping boxes */
+    raw.sort((a, b) => b.confidence - a.confidence);
+    const kept = [];
+    const suppressed = new Uint8Array(raw.length);
+
+    for (let i = 0; i < raw.length; i++) {
+      if (suppressed[i]) continue;
+      kept.push(raw[i]);
+      for (let j = i + 1; j < raw.length; j++) {
+        if (suppressed[j]) continue;
+        if (raw[i].classIdx !== raw[j].classIdx) continue;
+        if (iou(raw[i], raw[j]) > 0.45) suppressed[j] = 1;
+      }
+    }
+
+    state.onnxDetections = kept;
+    console.log(`Phase 21: ${kept.length} detection(s) after NMS.`, kept);
+    redraw();
+
+  } catch (err) {
+    console.warn('Phase 21: inference failed.', err);
+    state.onnxDetections = [];
+  }
+}
+
+/* IoU helper: given two boxes {x, y, w, h}, returns the
+   Intersection over Union ratio (0 = no overlap, 1 = identical). */
+function iou(a, b) {
+  const x1 = Math.max(a.x, b.x);
+  const y1 = Math.max(a.y, b.y);
+  const x2 = Math.min(a.x + a.w, b.x + b.w);
+  const y2 = Math.min(a.y + a.h, b.y + b.h);
+  const inter = Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
+  if (inter === 0) return 0;
+  return inter / (a.w * a.h + b.w * b.h - inter);
 }
 
 
@@ -1151,6 +1362,44 @@ function redraw() {
       drawLabelAtPoint({ x: ann.x, y: ann.y }, ann.label, ann.color, tFontSize, k);
     }
   });
+
+  /* ONNX DETECTIONS (phase 21)
+     ----------------------------------------------------------
+     Draw bounding boxes for all detections above the confidence
+     threshold. Each box is a semi-transparent filled rectangle
+     with a coloured border and a label showing class + confidence.
+     Never drawn in exportMode (same rule as the heatmap).
+     ---------------------------------------------------------- */
+  if (!exportMode && state.onnxDetections && state.onnxDetections.length > 0) {
+    state.onnxDetections.forEach(det => {
+      const color = ONNX_CLASS_COLORS[ONNX_CLASS_NAMES.indexOf(det.label)] || '#ffffff';
+      ctx.save();
+      /* Semi-transparent fill */
+      ctx.fillStyle = color.replace(')', ', 0.10)').replace('rgb(', 'rgba(') + (color.startsWith('#') ? '1a' : '');
+      ctx.globalAlpha = 0.15;
+      ctx.fillRect(det.x, det.y, det.w, det.h);
+      ctx.globalAlpha = 1.0;
+      /* Border */
+      ctx.strokeStyle = color;
+      ctx.lineWidth   = stroke * 1.5;
+      ctx.strokeRect(det.x, det.y, det.w, det.h);
+      /* Label */
+      const label = `${det.label} ${Math.round(det.confidence * 100)}%`;
+      ctx.font = `bold ${fontSize * 0.9}px sans-serif`;
+      const tw  = ctx.measureText(label).width;
+      const pad = 6 * k;
+      const lh  = fontSize * 0.9 + pad * 2;
+      ctx.fillStyle = 'rgba(0,0,0,0.75)';
+      ctx.globalAlpha = 1.0;
+      ctx.fillRect(det.x, det.y - lh, tw + pad * 2, lh);
+      ctx.fillStyle   = color;
+      ctx.textBaseline = 'middle';
+      ctx.textAlign    = 'left';
+      ctx.fillText(label, det.x + pad, det.y - lh / 2);
+      ctx.textBaseline = 'alphabetic';
+      ctx.restore();
+    });
+  }
 }
 
 function drawCross(x, y, color, size, stroke) {
@@ -4631,6 +4880,11 @@ window.testDetection = function () {
 
 
 setPhase('init');
+
+/* Phase 21: start loading the ONNX model in the background.
+   By the time the inspector picks a photo, the model will
+   likely already be ready. */
+initOnnxModel();
 
 } /* end of initApp() */
 /* ============================================================
