@@ -35,6 +35,7 @@ Tagged as v1.0-core after phase 13 completion.
 Tagged as v1.1-extract-app-js after phase 14 completion.
 Tagged as v1.2-multimarker after phase 16 completion.
 Tagged v1.3-lens-calibration after phase 17. Tagged v1.4-stereometry after phase 18.
+Tagged v1.5-onnx after phase 21.
 
 ### Implemented features
 
@@ -168,15 +169,24 @@ Tagged v1.3-lens-calibration after phase 17. Tagged v1.4-stereometry after phase
   (II/MM) rather than assuming a fixed offset after Exif\0\0,
   making it robust to padding variations across Android devices.
 
+- ONNX damage detection (phase 21): YOLOv8 nano model (best.onnx, 11.9 MB, classes:
+  crack, dent, paint-off, scratch, mAP50 0.834) runs entirely in the browser via
+  ONNX Runtime Web 1.18.0 (local, no CDN). Inference launches automatically after
+  photo load — with ArUco marker (after rectification) or without (immediately after
+  fallback to manual flow). No bounding boxes drawn; results shown as a text summary
+  badge bottom-right: "Damage type detected: Dent 96%". When nothing is detected above
+  the confidence threshold (0.35), shows "No damage type detected". Never appears on
+  exported JPEGs. Model and runtime files in lib/ (best.onnx, ort.min.js,
+  ort-wasm-simd.wasm, ort-wasm.wasm). ONNX_ENABLED flag allows disabling entirely.
+
 ### Pending work (current focus)
 
 Ongoing improvements to the Damage Measurement Tool, in planned order:
 
-- P1/P2 — Dataset (aircraft/vehicle) + YOLOv8 training → ONNX export.
-  In progress. Dataset at ~/datasets/aircraft-skin-defects (10,652 images,
-  classes: crack, dent, paint-off, scratch). Training on RTX 3050 Ti via WSL2.
-- Phase 21 — ONNX Runtime Web (basic): integrate trained model into app
-  for client-side damage detection on static photos. No backend required.
+- P1/P2 — ✅ COMPLETE. YOLOv8 nano trained on aircraft-skin-defects dataset
+  (10,652 images, classes: crack, dent, paint-off, scratch), exported to best.onnx
+  (11.9 MB, mAP50 0.834). Integrated in phase 21.
+- Phase 21 — ✅ COMPLETE. ONNX Runtime Web integrated. See implemented features above.
 - Phase 23 — Domain-aware ONNX: model detects rivets and panel edges,
   proposes protocol-driven measurements automatically (e.g. distance from
   damage edge to nearest rivet centre).
@@ -297,13 +307,14 @@ this project.
     deltaZ = disparity * distanceMm / baselinePx. Validated
     experimentally: ~15–25% error on non-reflective surfaces.
     Marked experimental in UI. Tag v1.4-stereometry.
-19. ⏸ ONNX Runtime Web (phase 21): custom-trained damage model in
-    browser. Prerequisite: P2 (trained .onnx ready). Next active phase.
+19. ⏸ Web Workers: implement only if ONNX inference causes unacceptable
+    UI freezing. Not a blocker for phases 23/24.
 20. ❌ Real-time capture assistant: DISCARDED. getUserMedia() on mobile
     gives inferior image quality vs native camera. Native camera
     workflow already covers the operational need.
-21. ⏸ ONNX Runtime Web (basic): integrate .onnx model for client-side
-    damage detection on static photos.
+21. ✅ ONNX Runtime Web (basic): YOLOv8 nano model integrated in browser.
+    Automatic inference on photo load. Text summary badge bottom-right.
+    No bounding boxes. ONNX Runtime Web 1.18.0 local. Tag v1.5-onnx.
 23. ⏸ Domain-aware ONNX: detect rivets and panel edges, propose
     automatic cota measurements (distance from damage to nearest rivet).
 24. ⏸ AI-generated inspection report: send dimension JSON to Azure
@@ -349,12 +360,18 @@ Realme GT 7 Pro calibrated, EXIF reader for JPEG and HEIC.
 Commit message: `phase 17 complete: per-device lens calibration`
 Merge branch: feature/phase-17-lens-calibration → main.
 
+### Checkpoint at phase 21 close — completed
+
+✅ Tag: `v1.5-onnx` — ONNX Runtime Web integration, YOLOv8 nano damage
+detection in browser. Worked directly on main (no feature branch).
+Commit message: `phase 21 complete: ONNX damage detection`
+
 ### Planned branches
 
-- `feature/phase-18-stereometry` — light 3D from two photos.
-- `feature/phase-19-onnx` — ONNX Runtime Web integration.
+- `feature/phase-23-domain-aware-onnx` — rivets, edges, automatic cota proposals.
+- `feature/phase-24-ai-report` — Azure OpenAI inspection report.
 
-All branches fork from main after v1.3-lens-calibration.
+All branches fork from main after v1.5-onnx.
 
 ## Tech stack and constraints
 
@@ -369,6 +386,13 @@ All branches fork from main after v1.3-lens-calibration.
       build does (confirmed by listing cv keys at runtime).
     - heic2any: version 0.0.4. Bundled at `lib/heic2any.min.js`.
       ~1 MB. Self-contained (WebAssembly embedded as base64).
+    - ONNX Runtime Web: version 1.18.0. Bundled at `lib/ort.min.js`
+      (~530 KB) + `lib/ort-wasm-simd.wasm` (~10 MB) + `lib/ort-wasm.wasm`
+      (~9.5 MB). Local — no CDN — for full offline PWA support.
+    - best.onnx: YOLOv8 nano damage detection model (~11.9 MB).
+      Classes: crack, dent, paint-off, scratch. mAP50 0.834.
+      Trained on aircraft-skin-defects dataset (Roboflow, CC BY 4.0).
+      Bundled at `lib/best.onnx`.
 - No npm, no build step, no transpiler.
 - Must run identically on iOS Safari, Android Chrome, and desktop
   Chrome / Firefox / Edge.
@@ -391,7 +415,11 @@ All branches fork from main after v1.3-lens-calibration.
     │   └── icon-512.png        (PWA icon 512×512, DMT Accenture purple)
     └── lib/
         ├── opencv.js           (~9-10 MB, do not edit)
-        └── heic2any.min.js     (~1 MB, do not edit)
+        ├── heic2any.min.js     (~1 MB, do not edit)
+        ├── ort.min.js          (~530 KB, ONNX Runtime Web 1.18.0, do not edit)
+        ├── ort-wasm-simd.wasm  (~10 MB, ONNX Runtime Web, do not edit)
+        ├── ort-wasm.wasm       (~9.5 MB, ONNX Runtime Web, do not edit)
+        └── best.onnx           (~11.9 MB, YOLOv8 nano damage model)
 
 ## Data handling and privacy
 
@@ -911,15 +939,13 @@ a damage report per vehicle registration number.
   like a professional inspection drawing, automatically. No backend
   required: all inference runs client-side via ONNX Runtime Web.
 
-### Suggested order going forward (post phase 18)
+### Suggested order going forward (post phase 21)
 
-Phases 1–18 complete. Active parallel track: P1/P2 (dataset + training).
+Phases 1–18 and 21 complete. P1/P2 complete. Tag v1.5-onnx on main.
 
-1. P1/P2 — Complete YOLOv8 training on aircraft-skin-defects dataset,
-   export to ONNX. In progress on RTX 3050 Ti via WSL2.
-2. Phase 21 — ONNX Runtime Web (basic): integrate .onnx model into
-   the app for client-side damage detection on static photos.
-3. Phase 23 — Domain-aware: rivets, edges, automatic cota proposals.
+1. ✅ P1/P2 — YOLOv8 training + ONNX export. Complete.
+2. ✅ Phase 21 — ONNX Runtime Web basic integration. Complete.
+3. Phase 23 — Domain-aware ONNX: rivets, edges, automatic cota proposals.
 4. Phase 24 — AI report: Azure OpenAI generates structured narrative
    from numeric measurement data. Fast to implement, high portfolio value.
 5. Phase 19 — Web Workers: only if ONNX inference causes UI freezing.
@@ -980,9 +1006,10 @@ equivalent. This is noted explicitly only where the distinction matters.
     images. No confidentiality constraints. Classes: dent, scratch,
     paint_damage, bumper_damage. Try open sources first (Roboflow
     Universe, Kaggle). ArUco markers NOT required in training photos.
-17. **Train a small model with YOLOv8 or similar.** Export to ONNX.
+17. **Train a small model with YOLOv8 or similar.** ✅ Completed.
+    YOLOv8 nano trained on aircraft-skin-defects, exported to best.onnx.
 18. **Integrate the trained model into the web app via ONNX Runtime
-    Web.** In roadmap as phase 19.
+    Web.** ✅ Completed in phase 21. Tag v1.5-onnx.
 19. **Aerospace AI model for automatic classification (corporate
     decision).** Depends entirely on corporate decisions.
 
@@ -1004,7 +1031,7 @@ equivalent. This is noted explicitly only where the distinction matters.
     publicly (LinkedIn or technical blog). Return materialises at
     12–18 months. Cost: 1–2 hours/week.
 
-## How to start the next session (phase 21 — ONNX Runtime Web)
+## How to start the next session (phase 23 — Domain-aware ONNX)
 
 When opening a new chat:
 
@@ -1018,20 +1045,15 @@ When opening a new chat:
 5. Deliver changes as copy-pasteable fragments for VS Code, not as
    whole-file replacements. Explain each fragment before presenting it.
 
-Phase 21 covers ONNX Runtime Web — integrating the trained YOLOv8 model
-into the browser app for client-side damage detection:
+Phase 23 covers domain-aware ONNX detection:
 
-  Prerequisites: P1/P2 complete (trained .onnx file ready).
-  The model runs entirely in the browser via ONNX Runtime Web —
-  no backend, no API calls, no images leave the device.
+  Prerequisites: Phase 21 complete (best.onnx integrated and working).
+  The model already runs in the browser. Phase 23 adds domain-specific
+  logic on top: detect rivets and panel edges, propose automatic
+  measurement cotas (e.g. distance from damage edge to nearest rivet
+  centre), generating a professional inspection drawing layout automatically.
+  No backend required — all inference and geometry runs client-side.
 
-  Key decisions to make at the start of phase 21:
-  - ONNX Runtime Web loading: via CDN or bundled locally (prefer local
-    for offline PWA support).
-  - Input format: model expects 640×640 px normalised tensor.
-  - Output: bounding boxes + class scores → overlay on photo canvas.
-  - Integration point: after ArUco calibration, before manual measurement.
-
-  Active branch to open: feature/phase-21-onnx
-  Suggested commit message: `phase 21 complete: ONNX damage detection`
-  Tag after merge to main: v1.5-onnx
+  Active branch to open: feature/phase-23-domain-aware-onnx
+  Suggested commit message: `phase 23 complete: domain-aware ONNX detection`
+  Tag after merge to main: v1.6-domain-aware
