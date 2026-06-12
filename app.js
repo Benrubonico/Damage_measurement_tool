@@ -810,6 +810,10 @@ function tryAutoCalibration() {
   /* No known marker detected — fall back to the manual flow,
      identical to the pre-ArUco behaviour of the app. */
   console.log('No ArUco marker detected, falling back to manual calibration.');
+  /* Phase 21: run ONNX detection even without a marker — the
+     inspector can still benefit from knowing the damage type
+     before deciding whether to calibrate manually. */
+  if (ONNX_ENABLED) runOnnxDetection();
   setPhase('calib-1');
   modalOnboard.classList.add('show');
 }
@@ -1378,39 +1382,79 @@ function redraw() {
   /* ONNX DETECTIONS (phase 21)
      ----------------------------------------------------------
      Draw bounding boxes for all detections above the confidence
-     threshold. Each box is a semi-transparent filled rectangle
-     with a coloured border and a label showing class + confidence.
+     threshold. Label appears inside the box when there is not
+     enough space above it (y too close to top edge).
      Never drawn in exportMode (same rule as the heatmap).
      ---------------------------------------------------------- */
   if (!exportMode && state.onnxDetections && state.onnxDetections.length > 0) {
     state.onnxDetections.forEach(det => {
       const color = ONNX_CLASS_COLORS[ONNX_CLASS_NAMES.indexOf(det.label)] || '#ffffff';
       ctx.save();
+
       /* Semi-transparent fill */
-      ctx.fillStyle = color.replace(')', ', 0.10)').replace('rgb(', 'rgba(') + (color.startsWith('#') ? '1a' : '');
       ctx.globalAlpha = 0.15;
+      ctx.fillStyle   = color;
       ctx.fillRect(det.x, det.y, det.w, det.h);
       ctx.globalAlpha = 1.0;
+
       /* Border */
       ctx.strokeStyle = color;
       ctx.lineWidth   = stroke * 1.5;
       ctx.strokeRect(det.x, det.y, det.w, det.h);
-      /* Label */
-      const label = `${det.label} ${Math.round(det.confidence * 100)}%`;
-      ctx.font = `bold ${fontSize * 0.9}px sans-serif`;
-      const tw  = ctx.measureText(label).width;
-      const pad = 6 * k;
-      const lh  = fontSize * 0.9 + pad * 2;
-      ctx.fillStyle = 'rgba(0,0,0,0.75)';
-      ctx.globalAlpha = 1.0;
-      ctx.fillRect(det.x, det.y - lh, tw + pad * 2, lh);
-      ctx.fillStyle   = color;
+
+      /* Label: above the box if there is room, inside otherwise */
+      const label   = `${det.label} ${Math.round(det.confidence * 100)}%`;
+      const lFontSz = fontSize * 0.9;
+      ctx.font      = `bold ${lFontSz}px sans-serif`;
+      const tw      = ctx.measureText(label).width;
+      const pad     = 6 * k;
+      const lh      = lFontSz + pad * 2;
+      const labelAbove = det.y - lh >= 0;
+      const labelY  = labelAbove ? det.y - lh : det.y;   // top-left Y of label box
+
+      ctx.fillStyle   = 'rgba(0,0,0,0.75)';
+      ctx.fillRect(det.x, labelY, tw + pad * 2, lh);
+      ctx.fillStyle    = color;
       ctx.textBaseline = 'middle';
       ctx.textAlign    = 'left';
-      ctx.fillText(label, det.x + pad, det.y - lh / 2);
+      ctx.fillText(label, det.x + pad, labelY + lh / 2);
       ctx.textBaseline = 'alphabetic';
       ctx.restore();
     });
+
+    /* ONNX LEGEND — colour key, bottom-left of the image.
+       Only drawn when there is at least one detection.
+       Never drawn in exportMode. */
+    const legFontSz  = fontSize * 0.85;
+    const legPad     = 8 * k;
+    const legSpacing = legFontSz + legPad;
+    const legW       = 160 * k;
+    const legH       = legPad + ONNX_CLASS_NAMES.length * legSpacing + legPad;
+    const legX       = legPad * 2;
+    const legY       = canvas.height - legH - legPad * 2;
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.70)';
+    ctx.fillRect(legX, legY, legW, legH);
+
+    ONNX_CLASS_NAMES.forEach((name, idx) => {
+      const rowY = legY + legPad + idx * legSpacing + legSpacing / 2;
+      /* Colour dot */
+      ctx.fillStyle = ONNX_CLASS_COLORS[idx];
+      ctx.beginPath();
+      ctx.arc(legX + legPad + legFontSz * 0.4,
+              rowY, legFontSz * 0.4, 0, Math.PI * 2);
+      ctx.fill();
+      /* Class name */
+      ctx.font         = `${legFontSz}px sans-serif`;
+      ctx.fillStyle    = '#ffffff';
+      ctx.textBaseline = 'middle';
+      ctx.textAlign    = 'left';
+      ctx.fillText(name, legX + legPad + legFontSz + legPad * 0.5, rowY);
+    });
+    ctx.textBaseline = 'alphabetic';
+    ctx.textAlign    = 'left';
+    ctx.restore();
   }
 }
 
@@ -2433,6 +2477,10 @@ function confirmCalibration() {
     document.getElementById('scale-set-text').textContent =
       `Scale: ${state.mmPerPixel.toFixed(3)} mm/pixel.`;
     modalScaleSet.classList.add('show');
+    /* Phase 21: run ONNX detection after manual calibration too.
+       The inspector may not have a marker but still wants to know
+       what type of damage is in the photo. */
+    if (ONNX_ENABLED) runOnnxDetection();
   }
 }
 
@@ -4898,7 +4946,7 @@ setPhase('init');
    likely already be ready. */
 initOnnxModel();
 
-} /* end of initApp() */
+} /* end of initApp() */  
 /* ============================================================
    SERVICE WORKER REGISTRATION
    ============================================================
