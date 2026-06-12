@@ -1386,72 +1386,73 @@ function redraw() {
      enough space above it (y too close to top edge).
      Never drawn in exportMode (same rule as the heatmap).
      ---------------------------------------------------------- */
-  if (!exportMode && state.onnxDetections && state.onnxDetections.length > 0) {
-    state.onnxDetections.forEach(det => {
-      const color = ONNX_CLASS_COLORS[ONNX_CLASS_NAMES.indexOf(det.label)] || '#ffffff';
+  if (!exportMode && state.onnxDetections !== null && state.onnxDetections !== undefined) {
+    /* No detections: show a brief notice in the top-left corner
+       so the inspector knows the model ran but found nothing. */
+    if (state.onnxDetections.length === 0) {
+      const noDetFontSz = fontSize * 0.8;
+      const noDetPad    = 6 * k;
+      const noDetText   = 'No damage type detected';
       ctx.save();
-
-      /* Semi-transparent fill */
-      ctx.globalAlpha = 0.15;
-      ctx.fillStyle   = color;
-      ctx.fillRect(det.x, det.y, det.w, det.h);
-      ctx.globalAlpha = 1.0;
-
-      /* Border */
-      ctx.strokeStyle = color;
-      ctx.lineWidth   = stroke * 1.5;
-      ctx.strokeRect(det.x, det.y, det.w, det.h);
-
-      /* Label: above the box if there is room, inside otherwise */
-      const label   = `${det.label} ${Math.round(det.confidence * 100)}%`;
-      const lFontSz = fontSize * 0.9;
-      ctx.font      = `bold ${lFontSz}px sans-serif`;
-      const tw      = ctx.measureText(label).width;
-      const pad     = 6 * k;
-      const lh      = lFontSz + pad * 2;
-      const labelAbove = det.y - lh >= 0;
-      const labelY  = labelAbove ? det.y - lh : det.y;   // top-left Y of label box
-
-      ctx.fillStyle   = 'rgba(0,0,0,0.75)';
-      ctx.fillRect(det.x, labelY, tw + pad * 2, lh);
-      ctx.fillStyle    = color;
+      ctx.font         = `${noDetFontSz}px sans-serif`;
+      const noDetW     = ctx.measureText(noDetText).width + noDetPad * 2;
+      const noDetH     = noDetFontSz + noDetPad * 2;
+      const noDetX     = noDetPad * 2;
+      const noDetY     = canvas.height - noDetH - noDetPad * 2;
+      ctx.fillStyle    = 'rgba(0,0,0,0.60)';
+      ctx.fillRect(noDetX, noDetY, noDetW, noDetH);
+      ctx.fillStyle    = '#aaaaaa';
       ctx.textBaseline = 'middle';
       ctx.textAlign    = 'left';
-      ctx.fillText(label, det.x + pad, labelY + lh / 2);
+      ctx.fillText(noDetText, noDetX + noDetPad, noDetY + noDetH / 2);
       ctx.textBaseline = 'alphabetic';
       ctx.restore();
+    }
+  }
+
+  if (!exportMode && state.onnxDetections && state.onnxDetections.length > 0) {
+    /* No bounding boxes — too invasive alongside dimension lines
+       and future overlays (rivets, edges, phase 23+).
+       Show only a text summary badge, bottom-right of the image. */
+    const sumFontSz  = fontSize * 0.85;
+    const sumPad     = 7 * k;
+    const sumSpacing = sumFontSz + sumPad;
+
+    const sumLines = state.onnxDetections.map(d => {
+      const cap = d.label.charAt(0).toUpperCase() + d.label.slice(1);
+      return `Damage type detected: ${cap} ${Math.round(d.confidence * 100)}%`;
     });
 
-    /* ONNX LEGEND — colour key, bottom-left of the image.
-       Only drawn when there is at least one detection.
-       Never drawn in exportMode. */
-    const legFontSz  = fontSize * 0.85;
-    const legPad     = 8 * k;
-    const legSpacing = legFontSz + legPad;
-    const legW       = 160 * k;
-    const legH       = legPad + ONNX_CLASS_NAMES.length * legSpacing + legPad;
-    const legX       = legPad * 2;
-    const legY       = canvas.height - legH - legPad * 2;
-
     ctx.save();
-    ctx.fillStyle = 'rgba(0,0,0,0.70)';
-    ctx.fillRect(legX, legY, legW, legH);
+    ctx.font = `bold ${sumFontSz}px sans-serif`;
+    const sumMaxW = Math.max(...sumLines.map(l => ctx.measureText(l).width));
+    const dotSpace = sumFontSz + sumPad * 0.5;
+    const sumW = sumMaxW + sumPad * 2 + dotSpace;
+    const sumH = sumPad + sumLines.length * sumSpacing + sumPad;
+    const sumX = canvas.width  - sumW - sumPad * 2;
+    const sumY = canvas.height - sumH - sumPad * 2;
 
-    ONNX_CLASS_NAMES.forEach((name, idx) => {
-      const rowY = legY + legPad + idx * legSpacing + legSpacing / 2;
+    ctx.fillStyle = 'rgba(0,0,0,0.75)';
+    ctx.fillRect(sumX, sumY, sumW, sumH);
+
+    sumLines.forEach((line, idx) => {
+      const det   = state.onnxDetections[idx];
+      const color = ONNX_CLASS_COLORS[ONNX_CLASS_NAMES.indexOf(det.label)] || '#ffffff';
+      const rowY  = sumY + sumPad + idx * sumSpacing + sumSpacing / 2;
+
       /* Colour dot */
-      ctx.fillStyle = ONNX_CLASS_COLORS[idx];
+      ctx.fillStyle = color;
       ctx.beginPath();
-      ctx.arc(legX + legPad + legFontSz * 0.4,
-              rowY, legFontSz * 0.4, 0, Math.PI * 2);
+      ctx.arc(sumX + sumPad + sumFontSz * 0.4, rowY, sumFontSz * 0.4, 0, Math.PI * 2);
       ctx.fill();
-      /* Class name */
-      ctx.font         = `${legFontSz}px sans-serif`;
+
+      /* Text */
       ctx.fillStyle    = '#ffffff';
       ctx.textBaseline = 'middle';
       ctx.textAlign    = 'left';
-      ctx.fillText(name, legX + legPad + legFontSz + legPad * 0.5, rowY);
+      ctx.fillText(line, sumX + sumPad + dotSpace, rowY);
     });
+
     ctx.textBaseline = 'alphabetic';
     ctx.textAlign    = 'left';
     ctx.restore();
