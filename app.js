@@ -2688,7 +2688,8 @@ function updateButtons() {
 
   if (state.phase === 'init') return;
 
-  btnNewProject.style.display = 'block';
+  btnNewProject.style.display  = 'block';
+  btnReportPanel.style.display = 'block';
 
   if (state.phase === 'calib-1-set' || state.phase === 'calib-2-set') {
     btnConfirmPoint.style.display = 'block';
@@ -2699,6 +2700,7 @@ function updateButtons() {
     btnCleanPanel.style.display      = 'block';
     btnSavePanel.style.display       = 'block';
     btnSharePanel.style.display      = 'block';
+    btnReportPanel.style.display     = 'block';
     if (state.originalPhoto) fabViewOriginal.style.display = 'block';
     fabHeatmap.style.display = 'block';
   }
@@ -5196,7 +5198,8 @@ async function generateWordReport() {
     const stringer  = document.getElementById('report-stringer').value.trim()   || '—';
     const frameFrom = document.getElementById('report-frame-from').value.trim() || '—';
     const frameTo   = document.getElementById('report-frame-to').value.trim()   || '—';
-    const posDist   = document.getElementById('report-pos-distance').value      || '—';
+    const posFrame    = document.getElementById('report-pos-frame').value    || '—';
+    const posStringer = document.getElementById('report-pos-stringer').value || '—';
 
     /* 2. Build data object (text markers + image dataUrls) */
     const dateStr   = new Date().toLocaleDateString('en-GB');   // DD/MM/YYYY
@@ -5210,7 +5213,8 @@ async function generateWordReport() {
       damage_direction: dmgDir,
       damage_label:     `${dmgType.toLowerCase()} (${dmgDir})`,
       length, width, depth,
-      stringer, frame_from: frameFrom, frame_to: frameTo, pos_distance: posDist,
+      stringer, frame_from: frameFrom, frame_to: frameTo,
+      pos_distance_frame: posFrame, pos_distance_stringer: posStringer,
       date: dateStr, scale_info: scaleInfo, tool_version: 'DMT v1.6',
       photo_overview: reportPhotoOverview ? reportPhotoOverview.dataUrl : null,
       photo_detail:   reportPhotoDetail   ? reportPhotoDetail.dataUrl   : null,
