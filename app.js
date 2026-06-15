@@ -444,6 +444,9 @@ const state = {
 
   /* ---- ONNX detections (phase 21) ---- */
   onnxDetections: [],       // array of {label, confidence, x, y, w, h} in image-space px
+
+  /* ---- Word report (phase 24) ---- */
+  lastStereoDepthMm: null,  // last stereo depth result, for report form pre-fill
 };
 
 const welcome = document.getElementById('welcome');
@@ -482,6 +485,7 @@ const leftPanelClose   = document.getElementById('left-panel-close');
 const btnCleanPanel    = document.getElementById('btn-clean-panel');
 const btnSavePanel     = document.getElementById('btn-save-panel');
 const btnSharePanel    = document.getElementById('btn-share-panel');
+const btnReportPanel   = document.getElementById('btn-report-panel');
 
 
 /* ============================================================
@@ -2672,7 +2676,7 @@ function updateButtons() {
     .forEach(b => b.style.display = 'none');
 
   /* Left-panel secondary buttons */
-  [btnCleanPanel, btnSavePanel, btnSharePanel]
+  [btnCleanPanel, btnSavePanel, btnSharePanel, btnReportPanel]
     .forEach(b => b.style.display = 'none');
 
   /* Floating view-original button */
@@ -3877,6 +3881,7 @@ function showStereoResult(depthMm) {
     valueEl.style.color  = '#e74c3c';
     detailEl.textContent = 'Template match score too low. Try a region with more visible texture, or check that both photos show the same object.';
   } else {
+    state.lastStereoDepthMm = depthMm;   // phase 24: pre-fill report depth field
     const sign    = depthMm < 0 ? '−' : '+';
     const absVal  = Math.abs(depthMm).toFixed(1);
     const label   = depthMm < 0 ? 'inward (depth)' : 'outward (height)';
@@ -4939,6 +4944,369 @@ window.testDetection = function () {
   }
 };
 
+
+/* ============================================================
+   WORD REPORT WIZARD — PHASE 24
+   ============================================================
+   Three-step overlay (same visual pattern as the stereo module):
+     Step 1 — Overview photo: fresh pick, ArUco detection informational
+     Step 2 — Detail photo: defaults to current canvas, or fresh pick
+     Step 3 — Metadata form → renders .docx and triggers download
+   Libraries required (local, no network at runtime):
+     lib/pizzip.min.js              → window.PizZip
+     lib/docxtemplater.min.js       → window.docxtemplater
+     lib/docxtemplater-image.min.js → window.ImageModule
+       (verify the exact global name after downloading the file)
+   Template: templates/inspection_report.docx
+     Text markers: {tag}   Image markers: {%tag}
+   ============================================================ */
+
+let reportPhotoOverview = null;  // {dataUrl, hasMarker, width, height} or null
+let reportPhotoDetail   = null;  // {dataUrl, hasMarker, isCanvas, width, height} or null
+
+/* ---------- entry point ---------- */
+document.getElementById('btn-report-panel').addEventListener('click', () => {
+  closeLeftPanel();
+  openReportWizard();
+});
+document.getElementById('report-close').addEventListener('click', closeReportWizard);
+
+function openReportWizard() {
+  reportPhotoOverview = null;
+  reportPhotoDetail   = null;
+
+  /* Reset step 1 UI */
+  document.getElementById('report-overview-status').textContent    = '';
+  document.getElementById('report-overview-status').className      = 'slot-status';
+  document.getElementById('report-overview-preview').style.display = 'none';
+  document.getElementById('btn-report-step1-next').disabled        = true;
+
+  /* Step 2: pre-populate with the current canvas if a photo is loaded */
+  const canvasOpt = document.getElementById('report-detail-canvas-option');
+  const sepEl     = document.getElementById('report-detail-sep');
+  if (state.photo) {
+    /* Export canvas synchronously (exportImage is synchronous) */
+    let dataUrl = '';
+    exportImage(() => { dataUrl = canvas.toDataURL('image/jpeg', 0.92); });
+    document.getElementById('report-detail-canvas-thumb').src = dataUrl;
+    reportPhotoDetail = {
+      dataUrl, hasMarker: true, isCanvas: true,
+      width: canvas.width, height: canvas.height
+    };
+    canvasOpt.style.display = 'block';
+    sepEl.style.display     = 'block';
+    document.getElementById('btn-report-step2-next').disabled   = false;
+    document.getElementById('report-detail-status').textContent = '';
+  } else {
+    canvasOpt.style.display = 'none';
+    sepEl.style.display     = 'none';
+    document.getElementById('btn-report-step2-next').disabled   = true;
+    document.getElementById('report-detail-status').textContent = '';
+  }
+
+  /* Reset alternative-photo thumbnail */
+  document.getElementById('report-detail-alt-preview').style.display = 'none';
+
+  /* Step 3: pre-fill measurements from current session */
+  prefillReportForm();
+
+  showReportStep(1);
+  document.getElementById('report-overlay').style.display = 'flex';
+}
+
+function closeReportWizard() {
+  document.getElementById('report-overlay').style.display = 'none';
+  reportPhotoOverview = null;
+  reportPhotoDetail   = null;
+}
+
+/* ---------- step navigation ---------- */
+function showReportStep(n) {
+  [1, 2, 3].forEach(i => {
+    document.getElementById(`report-step-${i}`).style.display =
+      (i === n) ? 'block' : 'none';
+  });
+  document.getElementById('report-step-label').textContent =
+    `📄 Inspection report — Step ${n}/3`;
+}
+
+document.getElementById('btn-report-step1-next').addEventListener('click',
+  () => showReportStep(2));
+document.getElementById('btn-report-step2-back').addEventListener('click',
+  () => showReportStep(1));
+document.getElementById('btn-report-step2-next').addEventListener('click',
+  () => showReportStep(3));
+document.getElementById('btn-report-step3-back').addEventListener('click',
+  () => showReportStep(2));
+
+/* "Use canvas" button: re-selects the canvas export as the active
+   detail photo, e.g. after the inspector loaded an alternative. */
+document.getElementById('btn-report-use-canvas').addEventListener('click', () => {
+  if (!state.photo) return;
+  let dataUrl = '';
+  exportImage(() => { dataUrl = canvas.toDataURL('image/jpeg', 0.92); });
+  document.getElementById('report-detail-canvas-thumb').src = dataUrl;
+  reportPhotoDetail = {
+    dataUrl, hasMarker: true, isCanvas: true,
+    width: canvas.width, height: canvas.height
+  };
+  document.getElementById('report-detail-alt-preview').style.display  = 'none';
+  document.getElementById('report-detail-status').textContent         = '';
+  document.getElementById('btn-report-step2-next').disabled           = false;
+});
+
+/* ---------- photo loading ---------- */
+function triggerReportFilePick(role) {
+  const input = document.createElement('input');
+  input.type          = 'file';
+  input.accept        = 'image/*';
+  input.style.display = 'none';
+  document.body.appendChild(input);
+
+  input.addEventListener('change', async () => {
+    const file = input.files[0];
+    document.body.removeChild(input);
+    if (!file) return;
+
+    const statusEl = document.getElementById(
+      role === 'overview' ? 'report-overview-status' : 'report-detail-status'
+    );
+    statusEl.textContent = 'Loading…';
+    statusEl.className   = 'slot-status';
+
+    /* HEIC conversion — same pattern as the stereo module */
+    const isHeic = /image\/hei[cf]/i.test(file.type || '') ||
+                   /\.(heic|heif)$/i.test(file.name || '');
+    let blob = file;
+    if (isHeic) {
+      try {
+        const converted = await window.heic2any({ blob: file, toType: 'image/jpeg', quality: 0.92 });
+        blob = Array.isArray(converted) ? converted[0] : converted;
+      } catch (e) {
+        statusEl.textContent = '✗ HEIC conversion failed. Try a JPEG.';
+        statusEl.className   = 'slot-status error';
+        return;
+      }
+    }
+
+    /* Load into Image element — loadImageFromBlob is defined in the stereo module */
+    let img;
+    try {
+      img = await loadImageFromBlob(blob);
+    } catch (e) {
+      statusEl.textContent = '✗ Could not read image file.';
+      statusEl.className   = 'slot-status error';
+      return;
+    }
+
+    /* Informational ArUco check — does not block progress */
+    const markerResult = detectArucoMarker(img);
+    const hasMarker    = !!(markerResult && markerResult.best);
+
+    /* Rasterise to an offscreen canvas to get a clean JPEG dataUrl
+       and the image dimensions we need for the Word layout. */
+    const off    = document.createElement('canvas');
+    off.width    = img.naturalWidth  || img.width;
+    off.height   = img.naturalHeight || img.height;
+    off.getContext('2d').drawImage(img, 0, 0);
+    const dataUrl = off.toDataURL('image/jpeg', 0.90);
+
+    const photoData = {
+      dataUrl, hasMarker, isCanvas: false,
+      width: off.width, height: off.height
+    };
+
+    if (role === 'overview') {
+      reportPhotoOverview = photoData;
+      document.getElementById('report-overview-thumb').src             = dataUrl;
+      document.getElementById('report-overview-preview').style.display = 'block';
+      statusEl.textContent = hasMarker
+        ? `✓ Marker ID ${markerResult.best.id} detected`
+        : 'ℹ No marker detected — you can still continue';
+      statusEl.className = hasMarker ? 'slot-status ok' : 'slot-status';
+      document.getElementById('btn-report-step1-next').disabled = false;
+    } else {
+      reportPhotoDetail = photoData;
+      document.getElementById('report-detail-alt-thumb').src              = dataUrl;
+      document.getElementById('report-detail-alt-preview').style.display  = 'block';
+      statusEl.textContent = hasMarker
+        ? `✓ Marker ID ${markerResult.best.id} detected`
+        : 'ℹ No marker detected — you can still continue';
+      statusEl.className = hasMarker ? 'slot-status ok' : 'slot-status';
+      document.getElementById('btn-report-step2-next').disabled = false;
+    }
+  });
+
+  input.click();
+}
+
+document.getElementById('btn-report-load-overview').addEventListener('click',
+  () => triggerReportFilePick('overview'));
+document.getElementById('btn-report-load-detail').addEventListener('click',
+  () => triggerReportFilePick('detail'));
+
+/* ---------- form pre-fill ---------- */
+function prefillReportForm() {
+  /* Damage type: top ONNX detection (labels are lowercase, options Capitalised) */
+  if (state.onnxDetections && state.onnxDetections.length > 0) {
+    const label = state.onnxDetections[0].label;
+    const cap   = label.charAt(0).toUpperCase() + label.slice(1);
+    const sel   = document.getElementById('report-damage-type');
+    const opt   = Array.from(sel.options).find(o => o.value === cap);
+    if (opt) sel.value = cap;
+  }
+
+  /* Dimensions: look for measurements named "Length" / "Width" */
+  document.getElementById('report-length').value = getDimValueByName('length');
+  document.getElementById('report-width').value  = getDimValueByName('width');
+
+  /* Depth: last stereo result if available */
+  document.getElementById('report-depth').value =
+    state.lastStereoDepthMm !== null ? state.lastStereoDepthMm.toFixed(2) : '';
+}
+
+/* Returns the pre-computed mm value (1 dp, as string) of the first
+   dimension whose name matches the argument (case-insensitive).
+   Uses dim.mm which is set at dimension creation time. */
+function getDimValueByName(name) {
+  const lc  = name.toLowerCase();
+  const dim = state.dimensions.find(d => d.name.toLowerCase() === lc);
+  return dim ? dim.mm.toFixed(1) : '';
+}
+
+/* ---------- .docx generation ---------- */
+document.getElementById('btn-report-generate').addEventListener('click', generateWordReport);
+
+async function generateWordReport() {
+  const btn = document.getElementById('btn-report-generate');
+  btn.disabled    = true;
+  btn.textContent = 'Generating…';
+
+  try {
+    /* 1. Collect form values */
+    const msn       = document.getElementById('report-msn').value.trim()        || '—';
+    const ref       = document.getElementById('report-ref').value.trim()        || '—';
+    const location  = document.getElementById('report-location').value.trim()   || '—';
+    const inspector = document.getElementById('report-inspector').value.trim()  || '—';
+    const dmgType   = document.getElementById('report-damage-type').value;
+    const dmgDir    = document.getElementById('report-damage-direction').value;
+    const length    = document.getElementById('report-length').value            || '—';
+    const width     = document.getElementById('report-width').value             || '—';
+    const depth     = document.getElementById('report-depth').value             || '—';
+    const stringer  = document.getElementById('report-stringer').value.trim()   || '—';
+    const frameFrom = document.getElementById('report-frame-from').value.trim() || '—';
+    const frameTo   = document.getElementById('report-frame-to').value.trim()   || '—';
+    const posDist   = document.getElementById('report-pos-distance').value      || '—';
+
+    /* 2. Build data object (text markers + image dataUrls) */
+    const dateStr   = new Date().toLocaleDateString('en-GB');   // DD/MM/YYYY
+    const scaleInfo = state.mmPerPixel
+      ? `ArUco ID ${state.calibMarkerId ?? 'manual'} — ${state.mmPerPixel.toFixed(3)} mm/px`
+      : 'Manual calibration';
+
+    const data = {
+      msn, ref, location, inspector,
+      damage_type:      dmgType,
+      damage_direction: dmgDir,
+      damage_label:     `${dmgType.toLowerCase()} (${dmgDir})`,
+      length, width, depth,
+      stringer, frame_from: frameFrom, frame_to: frameTo, pos_distance: posDist,
+      date: dateStr, scale_info: scaleInfo, tool_version: 'DMT v1.6',
+      photo_overview: reportPhotoOverview ? reportPhotoOverview.dataUrl : null,
+      photo_detail:   reportPhotoDetail   ? reportPhotoDetail.dataUrl   : null,
+    };
+
+    /* 3. Load template */
+    const response = await fetch('./templates/inspection_report.docx');
+    if (!response.ok) throw new Error(
+      `Template not found (HTTP ${response.status}). ` +
+      `Make sure templates/inspection_report.docx exists in the repo root.`
+    );
+    const arrayBuffer = await response.arrayBuffer();
+
+    /* 4. Initialise docxtemplater with image module.
+       IMPORTANT: verify that window.ImageModule is the correct global
+       name exposed by lib/docxtemplater-image.min.js after you download
+       it. If the file exposes a different name, update the line below. */
+    const ImageModuleClass = window.ImageModule;
+    if (!window.PizZip || !window.docxtemplater || !ImageModuleClass) {
+      throw new Error(
+        'Report libraries not loaded. Ensure pizzip.min.js, ' +
+        'docxtemplater.min.js and docxtemplater-image.min.js are present ' +
+        'in lib/ and that the page has been fully loaded.'
+      );
+    }
+
+    const imageModule = new ImageModuleClass({
+      centered:  false,
+      fileType:  'docx',
+      getImage: (tagValue) => {
+        if (!tagValue) return new Uint8Array(0);
+        return dataUrlToUint8Array(tagValue);
+      },
+      /* 1 "px" here ≈ 1/96 inch ≈ 0.265 mm, so 380 px ≈ 10 cm wide.
+         Adjust MAX_REPORT_IMG_PX to match your template's photo boxes. */
+      getSize: (_imgBytes, _tagValue, tagName) => {
+        const MAX_REPORT_IMG_PX = 380;
+        const src = tagName === 'photo_overview'
+          ? reportPhotoOverview
+          : reportPhotoDetail;
+        if (!src || !src.width) return [MAX_REPORT_IMG_PX, MAX_REPORT_IMG_PX];
+        const scale = Math.min(1, MAX_REPORT_IMG_PX / src.width);
+        return [Math.round(src.width * scale), Math.round(src.height * scale)];
+      }
+    });
+
+    const zip = new window.PizZip(arrayBuffer);
+    const doc = new window.docxtemplater(zip, {
+      modules:       [imageModule],
+      paragraphLoop: true,
+      linebreaks:    true,
+    });
+
+    /* 5. Render all markers */
+    doc.render(data);
+
+    /* 6. Generate blob and trigger download */
+    const blob = doc.getZip().generate({
+      type:        'blob',
+      mimeType:    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      compression: 'DEFLATE',
+    });
+
+    const safeMsn  = msn.replace(/[^a-zA-Z0-9_-]/g, '');
+    const safeDate = dateStr.replace(/\//g, '-');
+    const link     = document.createElement('a');
+    link.href      = URL.createObjectURL(blob);
+    link.download  = `DMT_${safeMsn}_${safeDate}.docx`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+
+    closeReportWizard();
+
+  } catch (err) {
+    console.error('Phase 24 — report generation failed:', err);
+    alert(`Report generation failed:\n${err.message}\n\nSee F12 console for details.`);
+  } finally {
+    btn.disabled    = false;
+    btn.textContent = '📄 Generate .docx';
+  }
+}
+
+/* Converts a data:image/jpeg;base64,... string to Uint8Array.
+   Required by the docxtemplater image module. */
+function dataUrlToUint8Array(dataUrl) {
+  const base64 = dataUrl.split(',')[1];
+  if (!base64) return new Uint8Array(0);
+  const binary = atob(base64);
+  const arr    = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) arr[i] = binary.charCodeAt(i);
+  return arr;
+}
+
+/* ============================================================
+   END OF WORD REPORT WIZARD — PHASE 24
+   ============================================================ */
 
 setPhase('init');
 

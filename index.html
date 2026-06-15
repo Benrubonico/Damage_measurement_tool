@@ -27,6 +27,9 @@
        ============================================================ -->
   <script async src="lib/heic2any.min.js"></script>
   <script async src="lib/ort.min.js"></script>
+  <script defer src="lib/pizzip.min.js"></script>
+  <script defer src="lib/docxtemplater.min.js"></script>
+  <script defer src="lib/docxtemplater-image.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -698,6 +701,79 @@ details[open] > summary::after   { content: '▾'; }
   text-align: center;
   min-height: 16px;
 }
+  /* ============================================================
+   REPORT WIZARD OVERLAY (phase 24)
+   ============================================================ */
+#report-overlay {
+  position: fixed;
+  inset: 0;
+  background: #111;
+  z-index: 56;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 20px 16px;
+  overflow-y: auto;
+}
+.report-inner {
+  width: 100%;
+  max-width: 380px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-bottom: 40px;
+}
+#report-step-label { font-size: 13px; font-weight: 700; color: #ccc; }
+.report-photo-preview {
+  width: 100%;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #000;
+  margin: 6px 0;
+}
+.report-photo-preview img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 220px;
+  object-fit: cover;
+}
+.report-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+.report-form label {
+  display: block;
+  font-size: 11px;
+  color: #888;
+  margin-bottom: 3px;
+}
+.report-form input,
+.report-form select {
+  width: 100%;
+  padding: 9px 11px;
+  font-size: 14px;
+  border-radius: 7px;
+  border: 1px solid #444;
+  background: #1a1a1a;
+  color: #fff;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.report-form .row-3 {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+}
+.report-form .row-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.report-nav { display: flex; gap: 8px; }
+.report-nav button { flex: 1; }
   </style>
 </head>
 <body>
@@ -1105,6 +1181,7 @@ details[open] > summary::after   { content: '▾'; }
     <button id="btn-clean-panel"         style="display:none">👁 Clean picture</button>
     <button id="btn-save-panel"          style="display:none">💾 Save</button>
     <button id="btn-share-panel"         style="display:none">📤 Share</button>
+    <button id="btn-report-panel"        style="display:none">📄 Word report</button>
   </div>
 
   <div class="how-to" style="border-top: 1px solid #222;">
@@ -1182,6 +1259,152 @@ details[open] > summary::after   { content: '▾'; }
 
       </div>
     </details>
+  </div>
+</div>
+
+<!-- ============================================================
+     WORD REPORT WIZARD OVERLAY (phase 24)
+     Three-step wizard: overview photo → detail photo → metadata form
+     ============================================================ -->
+<div id="report-overlay" style="display:none;">
+  <div class="report-inner">
+
+    <!-- Shared header -->
+    <div class="stereo-header">
+      <span id="report-step-label">📄 Inspection report — Step 1/3</span>
+      <button id="report-close">✕</button>
+    </div>
+
+    <!-- ── Step 1: Overview photo ─────────────────────────── -->
+    <div id="report-step-1">
+      <div class="stereo-photo-slot">
+        <div class="slot-label">Overview photo</div>
+        <p style="font-size:13px;color:#aaa;line-height:1.5;margin:0;">
+          Load the overview photo showing the damage location in context.
+          The ArUco marker should be visible in the photo.
+        </p>
+        <div id="report-overview-preview" class="report-photo-preview" style="display:none;">
+          <img id="report-overview-thumb" alt="Overview photo">
+        </div>
+        <div id="report-overview-status" class="slot-status" style="min-height:16px;"></div>
+        <button id="btn-report-load-overview" class="secondary">📷 Load overview photo</button>
+      </div>
+      <div class="report-nav" style="margin-top:8px;">
+        <button id="btn-report-step1-next" class="success" disabled>Next →</button>
+      </div>
+    </div>
+
+    <!-- ── Step 2: Detail photo ───────────────────────────── -->
+    <div id="report-step-2" style="display:none;">
+      <div class="stereo-photo-slot">
+        <div class="slot-label">Detail photo</div>
+        <p style="font-size:13px;color:#aaa;line-height:1.5;margin:0;">
+          The close-up photo of the damage. The ArUco marker should be visible.
+        </p>
+        <div id="report-detail-canvas-option" style="display:none;">
+          <div style="font-size:12px;color:#888;margin-top:6px;">▸ Current photo (with measurements)</div>
+          <div class="report-photo-preview">
+            <img id="report-detail-canvas-thumb" alt="Current photo with measurements">
+          </div>
+          <button id="btn-report-use-canvas" class="success" style="font-size:13px;padding:9px;">✓ Use this photo</button>
+        </div>
+        <div id="report-detail-sep" style="display:none;font-size:11px;color:#555;text-align:center;padding:6px 0;">
+          — or load a different photo —
+        </div>
+        <div id="report-detail-alt-preview" class="report-photo-preview" style="display:none;">
+          <img id="report-detail-alt-thumb" alt="Alternative detail photo">
+        </div>
+        <div id="report-detail-status" class="slot-status" style="min-height:16px;"></div>
+        <button id="btn-report-load-detail" class="secondary">📷 Load a different photo</button>
+      </div>
+      <div class="report-nav" style="margin-top:8px;">
+        <button id="btn-report-step2-back" class="secondary" style="flex:0 0 auto;min-width:90px;">← Back</button>
+        <button id="btn-report-step2-next" class="success" disabled>Next →</button>
+      </div>
+    </div>
+
+    <!-- ── Step 3: Metadata form ──────────────────────────── -->
+    <div id="report-step-3" style="display:none;">
+      <div class="stereo-photo-slot">
+        <div class="slot-label">Report data</div>
+        <div class="report-form">
+          <div class="row-2">
+            <div>
+              <label for="report-msn">MSN</label>
+              <input id="report-msn" type="text" placeholder="e.g. 13584" autocomplete="off">
+            </div>
+            <div>
+              <label for="report-ref">Ref.</label>
+              <input id="report-ref" type="text" placeholder="e.g. 1028844201" autocomplete="off">
+            </div>
+          </div>
+          <div>
+            <label for="report-location">Location</label>
+            <input id="report-location" type="text" placeholder="e.g. C56-57 P31-32 LH" autocomplete="off">
+          </div>
+          <div>
+            <label for="report-inspector">Inspector</label>
+            <input id="report-inspector" type="text" autocomplete="off">
+          </div>
+          <div class="row-2">
+            <div>
+              <label for="report-damage-type">Damage type</label>
+              <select id="report-damage-type">
+                <option value="Dent">Dent</option>
+                <option value="Scratch">Scratch</option>
+                <option value="Crack">Crack</option>
+                <option value="Paint-off">Paint-off</option>
+              </select>
+            </div>
+            <div>
+              <label for="report-damage-direction">Direction</label>
+              <select id="report-damage-direction">
+                <option value="out-in">out-in</option>
+                <option value="in-out">in-out</option>
+                <option value="N/A">N/A</option>
+              </select>
+            </div>
+          </div>
+          <div class="row-3">
+            <div>
+              <label for="report-length">Length (mm)</label>
+              <input id="report-length" type="number" step="0.1" min="0">
+            </div>
+            <div>
+              <label for="report-width">Width (mm)</label>
+              <input id="report-width" type="number" step="0.1" min="0">
+            </div>
+            <div>
+              <label for="report-depth">Depth (mm)</label>
+              <input id="report-depth" type="number" step="0.01" placeholder="e.g. -0.10">
+            </div>
+          </div>
+          <div class="row-3">
+            <div>
+              <label for="report-stringer">Stringer</label>
+              <input id="report-stringer" type="text" placeholder="e.g. C56" autocomplete="off">
+            </div>
+            <div>
+              <label for="report-frame-from">Frame from</label>
+              <input id="report-frame-from" type="text" placeholder="e.g. P31" autocomplete="off">
+            </div>
+            <div>
+              <label for="report-frame-to">Frame to</label>
+              <input id="report-frame-to" type="text" placeholder="e.g. P32" autocomplete="off">
+            </div>
+          </div>
+          <div>
+            <label for="report-pos-distance">Pos. distance (mm)</label>
+            <input id="report-pos-distance" type="number" step="1" min="0" placeholder="e.g. 27">
+          </div>
+        </div>
+      </div>
+      <div class="report-nav" style="margin-top:8px;">
+        <button id="btn-report-step3-back" class="secondary" style="flex:0 0 auto;min-width:90px;">← Back</button>
+        <button id="btn-report-generate" class="success">📄 Generate .docx</button>
+      </div>
+    </div>
+
   </div>
 </div>
 

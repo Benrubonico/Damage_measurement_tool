@@ -10,7 +10,7 @@
      increment CACHE_VERSION below (e.g. 'v1' -> 'v2').
    ============================================================ */
 
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v2';
 const CACHE_NAME    = `dmt-cache-${CACHE_VERSION}`;
 
 /* Files to cache immediately on install.
@@ -23,7 +23,8 @@ const PRE_CACHE_URLS = [
   './index.html',
   './manifest.json',
   './icons/icon-192.png',
-  './icons/icon-512.png'
+  './icons/icon-512.png',
+  './templates/inspection_report.docx'
 ];
 
 
