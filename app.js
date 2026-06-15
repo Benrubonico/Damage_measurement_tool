@@ -5239,14 +5239,13 @@ async function generateWordReport() {
       msn, ref, location, inspector,
       damage_type:      dmgType,
       damage_direction: dmgDir,
-      damage_label:     `${dmgType.toLowerCase()} (${dmgDir})`,
+      damage_label:     dmgDir ? `${dmgType.toLowerCase()} (${dmgDir})` : dmgType.toLowerCase(),
       length, width, depth,
       frame_from: frameFrom, frame_to: frameTo,
       stringer_from: stringerFrom, stringer_to: stringerTo,
       pos_distance_frame: posFrame, pos_distance_stringer: posStringer,
       date: dateStr, scale_info: scaleInfo, tool_version: 'DMT v1.6',
-      photo_overview: reportPhotoOverview ? reportPhotoOverview.dataUrl : null,
-      photo_detail:   reportPhotoDetail   ? reportPhotoDetail.dataUrl   : null,
+      /* Images disabled until compatible module found — inspector adds manually */
     };
 
     /* 3. Load template */
