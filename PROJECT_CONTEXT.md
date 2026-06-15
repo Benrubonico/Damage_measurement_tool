@@ -187,22 +187,47 @@ Ongoing improvements to the Damage Measurement Tool, in planned order:
   (10,652 images, classes: crack, dent, paint-off, scratch), exported to best.onnx
   (11.9 MB, mAP50 0.834). Integrated in phase 21.
 - Phase 21 — ✅ COMPLETE. ONNX Runtime Web integrated. See implemented features above.
-- Phase 23 — Domain-aware ONNX: model detects rivets and panel edges,
-  proposes protocol-driven measurements automatically (e.g. distance from
-  damage edge to nearest rivet centre).
-- Phase 24 — AI-generated inspection report: send dimension data (JSON,
-  no images) to Azure OpenAI and receive a structured narrative report.
+- Phase 24 — Local Word report generation. docxtemplater + PizZip (~160 KB,
+  both local). Inspector measures damage, presses "Export report", DMT fills
+  the Accenture Word template with all measurements, ONNX type, confidence,
+  scale, date and device. Downloads editable .docx ready to upload to SAP.
+  No network, no Azure, no privacy breach. Template stored in templates/.
+  Prerequisite: Word template with {markers} provided by Rubén.
+  Tag: v1.6-word-report.
+- Phase 23A — ONNX → Canny automatic connection. No retraining needed.
+  When ONNX detects damage and inspector taps Auto-detect, the ONNX
+  bounding box pre-fills the Canny search region automatically. Inspector
+  can accept, adjust, or ignore it and draw their own. Manual measurement
+  always available. All three modes (ONNX badge, Canny auto, manual)
+  coexist — none replaces another. Works best for scratch, crack and
+  blend-out (visible boundary). Less reliable for diffuse dents.
+  Tag: v1.7-onnx-canny.
+- Phase 23B — Domain-aware ONNX: rivets and panel edges. Requires P3
+  (new dataset with rivet and edge classes, retrain, export new .onnx).
+  Proposes cota distance from damage edge to nearest rivet centre
+  automatically. Deferred until P3 is complete.
+- Phase new — Stereometry improved. Diagnosis session first (Realme GT 7 Pro
+  calibrated, measure object of known depth, identify dominant error source).
+  Then fix based on findings. Tag: v1.8-stereo-improved.
+- Phase new — Inspection session + PDF export. Groups multiple damages into
+  one session (tail number / chassis, date, inspector). Generates signed PDF
+  with all damages, photos, measurements and ONNX types as formal deliverable.
+  Prerequisite: Phase 24 complete. Tag: v1.9-inspection-session.
+- Phase new — Azure OpenAI (optional, future). LLM generates narrative text,
+  SRM severity classification, action code suggestions from JSON measurements.
+  Data sent: numbers only, never photos. For corporate use: Accenture Azure
+  tenant (already deployed). For portfolio: personal Azure subscription.
+  Not started — requires explicit decision to break local-only constraint.
+- Phase new — Azure Dashboard (second portfolio project). Separate web
+  interface showing historical inspection sessions. Filters by asset, date,
+  damage type. Azure Blob Storage + Cosmos DB + Entra ID authentication.
+  Demonstrates real Azure architecture beyond the field app. Covers AZ-204
+  content directly. Separate repo.
 - Phase 19 — Web Workers: implement only if ONNX inference causes
-  unacceptable UI freezing. Not a blocker for phases 21/23/24.
+  unacceptable UI freezing on real device. Not yet observed.
 - Phase 20 — Real-time capture assistant: DISCARDED. getUserMedia() on
-  mobile gives worse image quality than native camera (autofocus,
-  optical zoom, iOS restrictions). Native camera workflow already solves
-  the operational problem phase 20 was designed to address.
-
-A separate second portfolio project focused on AI applied to vehicle
-damage inspection (pipeline, dataset, model training) will be planned
-independently when the tool reaches maturity. It is not a phase of
-this project.
+  mobile gives worse image quality than native camera. Native camera
+  workflow already solves the operational problem.
 
 ### Deferred to separate chats
 
@@ -315,10 +340,14 @@ this project.
 21. ✅ ONNX Runtime Web (basic): YOLOv8 nano model integrated in browser.
     Automatic inference on photo load. Text summary badge bottom-right.
     No bounding boxes. ONNX Runtime Web 1.18.0 local. Tag v1.5-onnx.
-23. ⏸ Domain-aware ONNX: detect rivets and panel edges, propose
-    automatic cota measurements (distance from damage to nearest rivet).
-24. ⏸ AI-generated inspection report: send dimension JSON to Azure
-    OpenAI, receive structured narrative report. No images to API.
+23A. ⏸ ONNX → Canny automatic connection: ONNX bounding box pre-fills
+     Canny search region when inspector taps Auto-detect. No retraining.
+     All measurement modes remain available. Tag v1.7-onnx-canny.
+23B. ⏸ Domain-aware ONNX (rivets + edges): requires P3 (new dataset,
+     retrain). Proposes rivet-to-damage cota automatically.
+24. ⏸ Local Word report: docxtemplater + PizZip, no network, no Azure.
+    Fills Accenture Word template with measurements and exports editable
+    .docx. Prerequisite: Word template from Rubén. Tag v1.6-word-report.
 
 ## Distribution strategy
 
@@ -368,8 +397,9 @@ Commit message: `phase 21 complete: ONNX damage detection`
 
 ### Planned branches
 
-- `feature/phase-23-domain-aware-onnx` — rivets, edges, automatic cota proposals.
-- `feature/phase-24-ai-report` — Azure OpenAI inspection report.
+- `feature/phase-24-word-report` — local Word export with docxtemplater.
+- `feature/phase-23a-onnx-canny` — ONNX bounding box → Canny auto ROI.
+- `feature/phase-23b-domain-aware` — rivets and edges (requires P3).
 
 All branches fork from main after v1.5-onnx.
 
@@ -931,13 +961,20 @@ a damage report per vehicle registration number.
   official reports. Aerospace-specific format; vehicle equivalent
   would be a standardised damage diagram per insurance or fleet
   management standards.
-- **★ Domain-aware automatic measurement proposals (phase 23).** Once
-  a trained ONNX model is integrated (phase 21), it can learn domain-
-  specific measurement conventions automatically. Example in aerospace:
-  when a dent is detected near rivets, the model proposes the distance
-  from the damage edge to the nearest rivet centre — generating cotas
-  like a professional inspection drawing, automatically. No backend
-  required: all inference runs client-side via ONNX Runtime Web.
+- **★ Domain-aware automatic measurement proposals (phases 23A + 23B).**
+  Phase 23A (no retraining): ONNX bounding box feeds Canny as automatic
+  ROI — inspector gets proposed dimensions without drawing the rectangle.
+  Works for scratch, crack, blend-out. Less reliable for diffuse dents.
+  All measurement modes remain available; none replaces another.
+  Phase 23B (requires P3 retraining): model learns rivet and panel edge
+  classes, proposes cota distance from damage to nearest rivet centre
+  automatically. No backend required for either phase.
+- **Azure OpenAI inspection assistant (future, optional).** LLM receives
+  JSON measurements (never photos), returns SRM severity classification,
+  action codes, and narrative text for the report. Opens the door to:
+  severity scoring, automatic SRM lookup, multilingual reports, pattern
+  detection across sessions. Requires explicit decision to break
+  local-only constraint. Corporate path: Accenture Azure tenant.
 
 ### Suggested order going forward (post phase 21)
 
@@ -945,11 +982,17 @@ Phases 1–18 and 21 complete. P1/P2 complete. Tag v1.5-onnx on main.
 
 1. ✅ P1/P2 — YOLOv8 training + ONNX export. Complete.
 2. ✅ Phase 21 — ONNX Runtime Web basic integration. Complete.
-3. Phase 23 — Domain-aware ONNX: rivets, edges, automatic cota proposals.
-4. Phase 24 — AI report: Azure OpenAI generates structured narrative
-   from numeric measurement data. Fast to implement, high portfolio value.
-5. Phase 19 — Web Workers: only if ONNX inference causes UI freezing.
-6. Phase 20 — DISCARDED. Native camera superior on mobile.
+3. Phase 24 — Local Word report (docxtemplater, no network).
+   Prerequisite: Word template from Rubén with {markers}.
+4. Phase 23A — ONNX → Canny automatic connection. No retraining.
+   One session. Best value-to-effort ratio in the roadmap.
+5. Phase new — Stereometry improved. Diagnosis first, then fix.
+6. Phase new — Inspection session + PDF export.
+7. Phase 23B — Domain-aware rivets/edges. Requires P3 first.
+8. Phase 19 — Web Workers: only if UI freezing observed on real device.
+9. Phase new — Azure OpenAI (optional). Explicit decision required.
+10. Phase new — Azure Dashboard (second portfolio project, separate repo).
+11. Phase 20 — DISCARDED. Native camera superior on mobile.
 
 **Solve the simple problem well before adding complexity.**
 
@@ -1031,7 +1074,7 @@ equivalent. This is noted explicitly only where the distinction matters.
     publicly (LinkedIn or technical blog). Return materialises at
     12–18 months. Cost: 1–2 hours/week.
 
-## How to start the next session (phase 23 — Domain-aware ONNX)
+## How to start the next session (phase 24 — Local Word report)
 
 When opening a new chat:
 
@@ -1045,15 +1088,22 @@ When opening a new chat:
 5. Deliver changes as copy-pasteable fragments for VS Code, not as
    whole-file replacements. Explain each fragment before presenting it.
 
-Phase 23 covers domain-aware ONNX detection:
+Phase 24 covers local Word report generation — no network, no Azure,
+no privacy breach:
 
-  Prerequisites: Phase 21 complete (best.onnx integrated and working).
-  The model already runs in the browser. Phase 23 adds domain-specific
-  logic on top: detect rivets and panel edges, propose automatic
-  measurement cotas (e.g. distance from damage edge to nearest rivet
-  centre), generating a professional inspection drawing layout automatically.
-  No backend required — all inference and geometry runs client-side.
+  Prerequisites: Rubén provides the Accenture Word template (.docx)
+  with {markers} placed at the position of each data field.
+  Suggested markers: {tipo_dano}, {confianza}, {dim1_nombre},
+  {dim1_valor}, {dim2_nombre}, {dim2_valor}, {escala}, {marcador},
+  {fecha}, {dispositivo}, {inspector}.
 
-  Active branch to open: feature/phase-23-domain-aware-onnx
-  Suggested commit message: `phase 23 complete: domain-aware ONNX detection`
-  Tag after merge to main: v1.6-domain-aware
+  Libraries: docxtemplater + PizZip (~160 KB total, both local in lib/).
+  Template stored in templates/inspection_report.docx.
+  Output: editable .docx downloaded to device, ready to upload to SAP.
+
+  Active branch to open: feature/phase-24-word-report
+  Suggested commit message: `phase 24 complete: local Word report export`
+  Tag after merge to main: v1.6-word-report
+
+  NOTE: Phase 23A (ONNX → Canny automatic connection) follows phase 24
+  and requires no retraining. One session. Branch: feature/phase-23a-onnx-canny.
