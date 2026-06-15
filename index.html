@@ -1351,19 +1351,24 @@ details[open] > summary::after   { content: '▾'; }
               <label for="report-damage-type">Damage type</label>
               <select id="report-damage-type">
                 <option value="Dent">Dent</option>
+                <option value="Blend out">Blend out</option>
+                <option value="Rivet pull in">Rivet pull in</option>
+                <option value="Out of contour">Out of contour</option>
                 <option value="Scratch">Scratch</option>
-                <option value="Crack">Crack</option>
-                <option value="Paint-off">Paint-off</option>
+                <option value="Other">Other (specify below)</option>
               </select>
             </div>
-            <div>
+            <div id="report-direction-wrap">
               <label for="report-damage-direction">Direction</label>
               <select id="report-damage-direction">
                 <option value="out-in">out-in</option>
                 <option value="in-out">in-out</option>
-                <option value="N/A">N/A</option>
               </select>
             </div>
+          </div>
+          <div id="report-other-wrap" style="display:none;">
+            <label for="report-damage-other">Specify damage type</label>
+            <input id="report-damage-other" type="text" autocomplete="off" placeholder="Describe the damage type">
           </div>
           <div class="row-3">
             <div>
@@ -1379,11 +1384,7 @@ details[open] > summary::after   { content: '▾'; }
               <input id="report-depth" type="number" step="0.01" placeholder="e.g. -0.10">
             </div>
           </div>
-          <div class="row-3">
-            <div>
-              <label for="report-stringer">Stringer</label>
-              <input id="report-stringer" type="text" placeholder="e.g. C56" autocomplete="off">
-            </div>
+          <div class="row-2">
             <div>
               <label for="report-frame-from">Frame from</label>
               <input id="report-frame-from" type="text" placeholder="e.g. P31" autocomplete="off">
@@ -1391,6 +1392,16 @@ details[open] > summary::after   { content: '▾'; }
             <div>
               <label for="report-frame-to">Frame to</label>
               <input id="report-frame-to" type="text" placeholder="e.g. P32" autocomplete="off">
+            </div>
+          </div>
+          <div class="row-2">
+            <div>
+              <label for="report-stringer-from">Stringer from</label>
+              <input id="report-stringer-from" type="text" placeholder="e.g. C56" autocomplete="off">
+            </div>
+            <div>
+              <label for="report-stringer-to">Stringer to</label>
+              <input id="report-stringer-to" type="text" placeholder="e.g. C57" autocomplete="off">
             </div>
           </div>
           <div class="row-2">

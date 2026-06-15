@@ -5013,6 +5013,19 @@ function openReportWizard() {
   /* Step 3: pre-fill measurements from current session */
   prefillReportForm();
 
+  /* Wire up damage type → direction / other field visibility */
+  const dmgTypeSel = document.getElementById('report-damage-type');
+  function updateDamageTypeUI() {
+    const val = dmgTypeSel.value;
+    document.getElementById('report-direction-wrap').style.display =
+      (val === 'Dent') ? 'block' : 'none';
+    document.getElementById('report-other-wrap').style.display =
+      (val === 'Other') ? 'block' : 'none';
+  }
+  dmgTypeSel.removeEventListener('change', updateDamageTypeUI);
+  dmgTypeSel.addEventListener('change', updateDamageTypeUI);
+  updateDamageTypeUI();   // apply on open
+
   showReportStep(1);
   document.getElementById('report-overlay').style.display = 'flex';
 }
@@ -5164,6 +5177,14 @@ function prefillReportForm() {
   document.getElementById('report-length').value = getDimValueByName('length');
   document.getElementById('report-width').value  = getDimValueByName('width');
 
+  /* Reset direction/other visibility after pre-fill */
+  const sel = document.getElementById('report-damage-type');
+  if (sel) {
+    document.getElementById('report-direction-wrap').style.display =
+      sel.value === 'Dent' ? 'block' : 'none';
+    document.getElementById('report-other-wrap').style.display = 'none';
+  }
+
   /* Depth: last stereo result if available */
   document.getElementById('report-depth').value =
     state.lastStereoDepthMm !== null ? state.lastStereoDepthMm.toFixed(2) : '';
@@ -5192,14 +5213,19 @@ async function generateWordReport() {
     const ref       = document.getElementById('report-ref').value.trim()        || '—';
     const location  = document.getElementById('report-location').value.trim()   || '—';
     const inspector = document.getElementById('report-inspector').value.trim()  || '—';
-    const dmgType   = document.getElementById('report-damage-type').value;
-    const dmgDir    = document.getElementById('report-damage-direction').value;
+    const dmgTypeRaw = document.getElementById('report-damage-type').value;
+    const dmgOther   = document.getElementById('report-damage-other').value.trim();
+    const dmgType    = (dmgTypeRaw === 'Other' && dmgOther) ? dmgOther : dmgTypeRaw;
+    const dmgDir     = (dmgTypeRaw === 'Dent')
+      ? document.getElementById('report-damage-direction').value
+      : '';
     const length    = document.getElementById('report-length').value            || '—';
     const width     = document.getElementById('report-width').value             || '—';
     const depth     = document.getElementById('report-depth').value             || '—';
-    const stringer  = document.getElementById('report-stringer').value.trim()   || '—';
-    const frameFrom = document.getElementById('report-frame-from').value.trim() || '—';
-    const frameTo   = document.getElementById('report-frame-to').value.trim()   || '—';
+    const frameFrom      = document.getElementById('report-frame-from').value.trim()    || '—';
+    const frameTo        = document.getElementById('report-frame-to').value.trim()      || '—';
+    const stringerFrom   = document.getElementById('report-stringer-from').value.trim() || '—';
+    const stringerTo     = document.getElementById('report-stringer-to').value.trim()   || '—';
     const posFrame    = document.getElementById('report-pos-frame').value    || '—';
     const posStringer = document.getElementById('report-pos-stringer').value || '—';
 
@@ -5215,7 +5241,8 @@ async function generateWordReport() {
       damage_direction: dmgDir,
       damage_label:     `${dmgType.toLowerCase()} (${dmgDir})`,
       length, width, depth,
-      stringer, frame_from: frameFrom, frame_to: frameTo,
+      frame_from: frameFrom, frame_to: frameTo,
+      stringer_from: stringerFrom, stringer_to: stringerTo,
       pos_distance_frame: posFrame, pos_distance_stringer: posStringer,
       date: dateStr, scale_info: scaleInfo, tool_version: 'DMT v1.6',
       photo_overview: reportPhotoOverview ? reportPhotoOverview.dataUrl : null,
@@ -5234,38 +5261,19 @@ async function generateWordReport() {
        IMPORTANT: verify that window.ImageModule is the correct global
        name exposed by lib/docxtemplater-image.min.js after you download
        it. If the file exposes a different name, update the line below. */
-    const ImageModuleClass = window.ImageModule;
-    if (!window.PizZip || !window.docxtemplater || !ImageModuleClass) {
+    if (!window.PizZip || !window.docxtemplater) {
       throw new Error(
-        'Report libraries not loaded. Ensure pizzip.min.js, ' +
-        'docxtemplater.min.js and docxtemplater-image.min.js are present ' +
-        'in lib/ and that the page has been fully loaded.'
+        'Report libraries not loaded. Ensure pizzip.min.js and ' +
+        'docxtemplater.min.js are present in lib/.'
       );
     }
 
-    const imageModule = new ImageModuleClass({
-      centered:  false,
-      fileType:  'docx',
-      getImage: (tagValue) => {
-        if (!tagValue) return new Uint8Array(0);
-        return dataUrlToUint8Array(tagValue);
-      },
-      /* 1 "px" here ≈ 1/96 inch ≈ 0.265 mm, so 380 px ≈ 10 cm wide.
-         Adjust MAX_REPORT_IMG_PX to match your template's photo boxes. */
-      getSize: (_imgBytes, _tagValue, tagName) => {
-        const MAX_REPORT_IMG_PX = 380;
-        const src = tagName === 'photo_overview'
-          ? reportPhotoOverview
-          : reportPhotoDetail;
-        if (!src || !src.width) return [MAX_REPORT_IMG_PX, MAX_REPORT_IMG_PX];
-        const scale = Math.min(1, MAX_REPORT_IMG_PX / src.width);
-        return [Math.round(src.width * scale), Math.round(src.height * scale)];
-      }
-    });
-
+    /* Image module disabled: docxtemplater-image-module-free is incompatible
+       with modern browsers (namespaceURI is read-only). Photos are embedded
+       as text placeholders for now — inspector adds them manually in Word.
+       Re-enable once a compatible image module is found. */
     const zip = new window.PizZip(arrayBuffer);
     const doc = new window.docxtemplater(zip, {
-      modules:       [imageModule],
       paragraphLoop: true,
       linebreaks:    true,
     });
