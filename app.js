@@ -4982,6 +4982,7 @@ function openReportWizard() {
   document.getElementById('report-overview-status').className      = 'slot-status';
   document.getElementById('report-overview-preview').style.display = 'none';
   document.getElementById('btn-report-step1-next').disabled        = true;
+  document.getElementById('btn-report-load-overview').textContent  = '📷 Load overview photo';
 
   /* Step 2: pre-populate with the current canvas if a photo is loaded */
   const canvasOpt = document.getElementById('report-detail-canvas-option');
@@ -5126,7 +5127,8 @@ function triggerReportFilePick(role) {
         ? `✓ Marker ID ${markerResult.best.id} detected`
         : 'ℹ No marker detected — you can still continue';
       statusEl.className = hasMarker ? 'slot-status ok' : 'slot-status';
-      document.getElementById('btn-report-step1-next').disabled = false;
+      document.getElementById('btn-report-step1-next').disabled           = false;
+      document.getElementById('btn-report-load-overview').textContent     = '📷 Change overview photo';
     } else {
       reportPhotoDetail = photoData;
       document.getElementById('report-detail-alt-thumb').src              = dataUrl;
