@@ -17,11 +17,15 @@
    detector and we cannot proceed with automatic calibration.
    ============================================================ */
 (function waitForOpenCV() {
+  let called = false;
+
   function isReady() {
     return typeof cv !== 'undefined' && cv && typeof cv.Mat === 'function';
   }
 
   function onReady() {
+    if (called) return;
+    called = true;
     document.getElementById('opencv-loading').hidden = true;
     document.getElementById('btn-pick-camera').disabled = false;
     document.getElementById('btn-pick-gallery').disabled = false;
@@ -2176,7 +2180,6 @@ function onMouseMove(evt) {
 
   /* Text stamp drag */
   if (state.draggingText) {
-    const imgPos = getImagePoint(evt.clientX, evt.clientY);
     state.draggingText.x = state.dragTextOrigin.x + (imgPos.x - state.dragTextStartImgPos.x);
     state.draggingText.y = state.dragTextOrigin.y + (imgPos.y - state.dragTextStartImgPos.y);
     redraw();
@@ -2243,7 +2246,6 @@ function onMouseUp(evt) {
     state.dragStartImgPos = null;
     if (moved < TAP_THRESHOLD_PX) {
       openDimEditor(dim);
-      return;
     }
     return;
   }
@@ -2468,7 +2470,6 @@ function confirmCalibration() {
       const px = Math.hypot(d.b.x - d.a.x, d.b.y - d.a.y);
       d.mm = px * newMmPerPixel;
     });
-    renderPanelList();
   }
 
   state.mmPerPixel = newMmPerPixel;
@@ -3640,8 +3641,6 @@ function wireRoiCanvas() {
   /* Re-draw the photo onto the cloned canvas (no rectangle yet) */
   const img = stereoPhotos[0].img;
   const ctx2 = fresh.getContext('2d');
-  /* Carry over dimensions from the original canvas that was replaced */
-  const orig = document.getElementById('stereo-roi-canvas');
   fresh.width  = fresh.width  || img.naturalWidth  || img.width;
   fresh.height = fresh.height || img.naturalHeight || img.height;
   ctx2.drawImage(img, 0, 0, fresh.width, fresh.height);
@@ -4767,10 +4766,8 @@ function rectifyImageWithMultipleMarkers(img, markers) {
        that was baked into the raw pixel offsets. */
     const offsetXpx = centres[idx].x - primaryDetectedCx;
     const offsetYpx = centres[idx].y - primaryDetectedCy;
-    const offsetXmm = offsetXpx * mmPerPx;
-    const offsetYmm = offsetYpx * mmPerPx;
-    const idealCx = primaryIdealCx + offsetXmm / mmPerPx;
-    const idealCy = primaryIdealCy + offsetYmm / mmPerPx;
+    const idealCx   = primaryIdealCx + offsetXpx;
+    const idealCy   = primaryIdealCy + offsetYpx;
 
     /* Ideal corners as a perfect square (TL, TR, BR, BL). */
     const ideal = [
@@ -4966,6 +4963,16 @@ window.testDetection = function () {
 let reportPhotoOverview = null;  // {dataUrl, hasMarker, width, height} or null
 let reportPhotoDetail   = null;  // {dataUrl, hasMarker, isCanvas, width, height} or null
 
+/* Defined at module level so removeEventListener in openReportWizard
+   always receives the same stable reference. */
+function updateDamageTypeUI() {
+  const val = document.getElementById('report-damage-type').value;
+  document.getElementById('report-direction-wrap').style.display =
+    (val === 'Dent') ? 'block' : 'none';
+  document.getElementById('report-other-wrap').style.display =
+    (val === 'Other') ? 'block' : 'none';
+}
+
 /* ---------- entry point ---------- */
 document.getElementById('btn-report-panel').addEventListener('click', () => {
   closeLeftPanel();
@@ -5013,15 +5020,10 @@ function openReportWizard() {
   /* Step 3: pre-fill measurements from current session */
   prefillReportForm();
 
-  /* Wire up damage type → direction / other field visibility */
+  /* Wire up damage type → direction / other field visibility.
+     updateDamageTypeUI is defined at module level so removeEventListener
+     receives the same reference every time and actually removes the old handler. */
   const dmgTypeSel = document.getElementById('report-damage-type');
-  function updateDamageTypeUI() {
-    const val = dmgTypeSel.value;
-    document.getElementById('report-direction-wrap').style.display =
-      (val === 'Dent') ? 'block' : 'none';
-    document.getElementById('report-other-wrap').style.display =
-      (val === 'Other') ? 'block' : 'none';
-  }
   dmgTypeSel.removeEventListener('change', updateDamageTypeUI);
   dmgTypeSel.addEventListener('change', updateDamageTypeUI);
   updateDamageTypeUI();   // apply on open
