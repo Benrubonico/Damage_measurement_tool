@@ -125,9 +125,18 @@ repo-root/
 ├── icons/
 │   ├── icon-192.png        PWA icon 192×192
 │   └── icon-512.png        PWA icon 512×512
+├── templates/
+│   └── inspection_report.docx   DMT inspection report template (A4 landscape)
 └── lib/
-    ├── opencv.js           OpenCV.js 4.12.0 techstark build (~10 MB, includes ArUco)
-    └── heic2any.min.js     HEIC→JPEG converter (~1 MB)
+    ├── opencv.js                 OpenCV.js 4.12.0 techstark build (~10 MB, includes ArUco)
+    ├── heic2any.min.js           HEIC→JPEG converter (~1 MB)
+    ├── ort.min.js                ONNX Runtime Web 1.18.0 (~530 KB)
+    ├── ort-wasm-simd.wasm        ONNX WASM runtime (~10 MB)
+    ├── ort-wasm.wasm             ONNX WASM fallback (~9.5 MB)
+    ├── best.onnx                 YOLOv8 nano damage model (~11.9 MB)
+    ├── pizzip.min.js             ZIP manipulation for .docx (~35 KB)
+    ├── docxtemplater.min.js      Word template engine (~125 KB)
+    └── docxtemplater-image.min.js  Image module, loaded but inactive (~65 KB)
 ```
 
 ---
@@ -137,6 +146,8 @@ repo-root/
 - **Vanilla HTML + CSS + JavaScript.** No frameworks, no build step, no npm, no transpiler.
 - **OpenCV.js** (techstark build 4.12.0): ArUco detection + `warpPerspective` + `findHomography` + `minAreaRect` + `undistort`. Bundled locally — the official opencv.org build does not include ArUco.
 - **heic2any** 0.0.4: client-side HEIC/HEIF conversion. Bundled locally.
+- **ONNX Runtime Web** 1.18.0: in-browser YOLOv8 nano inference. Bundled locally (ort.min.js + WASM files). No backend required.
+- **docxtemplater** + **PizZip**: local Word report generation. Fills `{markers}` in the DMT inspection template. No network. Photo embedding deferred (browser incompatibility with image module).
 - **Azure Static Web Apps**: hosting and access control via Microsoft account authentication (role: inspector).
 - **GitHub Actions**: automatic deployment to Azure on every push to `main`.
 
@@ -172,6 +183,8 @@ All users will automatically receive the update on their next visit.
 | 16 | ✅ Done | Multi-marker homography (`findHomography`, 15 px threshold) — **tagged v1.2-multimarker** |
 | 17 | ✅ Done | Per-device lens calibration (checkerboard, RMS 0.56 px) — **tagged v1.3-lens-calibration** |
 | 18 | ✅ Done | Stereometry: experimental depth estimation from two photos — **tagged v1.4-stereometry** |
-| 21 | 🔄 Next | ONNX Runtime Web: custom-trained damage model in browser |
-| 23 | ⏸ Planned | Domain-aware detection: rivets, edges, automatic measurement proposals |
-| 24 | ⏸ Planned | AI-generated inspection report (Azure OpenAI, numeric data only) |
+| 21 | ✅ Done | ONNX Runtime Web: YOLOv8 nano damage detection in browser — **tagged v1.5-onnx** |
+| 24 | ✅ Done | Local Word report wizard: docxtemplater + PizZip, DMT template, no network — **tagged v1.6-word-report** |
+| 23A | ⏸ Planned | ONNX bbox → Canny auto ROI: pre-fills search region, inspector can override |
+| 23B | ⏸ Planned | Domain-aware detection: rivets and edges (requires model retraining) |
+| 27/29 | ⏸ Planned | Inspection session + PDF export with embedded photos |

@@ -35,7 +35,7 @@ Tagged as v1.0-core after phase 13 completion.
 Tagged as v1.1-extract-app-js after phase 14 completion.
 Tagged as v1.2-multimarker after phase 16 completion.
 Tagged v1.3-lens-calibration after phase 17. Tagged v1.4-stereometry after phase 18.
-Tagged v1.5-onnx after phase 21.
+Tagged v1.5-onnx after phase 21. Tagged v1.6-word-report after phase 24.
 
 ### Implemented features
 
@@ -187,12 +187,14 @@ Ongoing improvements to the Damage Measurement Tool, in planned order:
   (10,652 images, classes: crack, dent, paint-off, scratch), exported to best.onnx
   (11.9 MB, mAP50 0.834). Integrated in phase 21.
 - Phase 21 — ✅ COMPLETE. ONNX Runtime Web integrated. See implemented features above.
-- Phase 24 — Local Word report generation. docxtemplater + PizZip (~160 KB,
-  both local). Inspector measures damage, presses "Export report", DMT fills
-  the Accenture Word template with all measurements, ONNX type, confidence,
-  scale, date and device. Downloads editable .docx ready to upload to SAP.
-  No network, no Azure, no privacy breach. Template stored in templates/.
-  Prerequisite: Word template with {markers} provided by Rubén.
+- Phase 24 — ✅ COMPLETE. Local Word report generation. Three-step wizard
+  (overview photo → detail photo → metadata form). docxtemplater + PizZip
+  (local, no network). Fills DMT Word template with all measurements, damage
+  type, positioning data, scale, date and inspector. Downloads editable .docx.
+  Note: photo embedding deferred — docxtemplater-image-module-free is
+  incompatible with modern browsers (namespaceURI read-only in DOM).
+  Photos added manually in Word for now. Image embedding planned for
+  phase 29 (PDF export, HTML + base64 approach, no external dependencies).
   Tag: v1.6-word-report.
 - Phase 23A — ONNX → Canny automatic connection. No retraining needed.
   When ONNX detects damage and inspector taps Auto-detect, the ONNX
@@ -345,9 +347,11 @@ Ongoing improvements to the Damage Measurement Tool, in planned order:
      All measurement modes remain available. Tag v1.7-onnx-canny.
 23B. ⏸ Domain-aware ONNX (rivets + edges): requires P3 (new dataset,
      retrain). Proposes rivet-to-damage cota automatically.
-24. ⏸ Local Word report: docxtemplater + PizZip, no network, no Azure.
-    Fills Accenture Word template with measurements and exports editable
-    .docx. Prerequisite: Word template from Rubén. Tag v1.6-word-report.
+24. ✅ Local Word report: three-step wizard (overview photo → detail photo
+    → metadata form). docxtemplater + PizZip local. DMT-branded template
+    (A4 landscape, Accenture purple header, tables for damage and
+    positioning data). Photo embedding deferred (browser incompatibility).
+    Tag v1.6-word-report.
 
 ## Distribution strategy
 
@@ -395,13 +399,20 @@ Merge branch: feature/phase-17-lens-calibration → main.
 detection in browser. Worked directly on main (no feature branch).
 Commit message: `phase 21 complete: ONNX damage detection`
 
+### Checkpoint at phase 24 close — completed
+
+✅ Tag: `v1.6-word-report` — local Word report wizard, docxtemplater + PizZip,
+DMT-branded A4 landscape template. Photo embedding deferred (browser
+incompatibility with docxtemplater-image-module-free).
+Commit message: `phase 24 complete: Word report wizard`
+Worked directly on main.
+
 ### Planned branches
 
-- `feature/phase-24-word-report` — local Word export with docxtemplater.
 - `feature/phase-23a-onnx-canny` — ONNX bounding box → Canny auto ROI.
 - `feature/phase-23b-domain-aware` — rivets and edges (requires P3).
 
-All branches fork from main after v1.5-onnx.
+All branches fork from main after v1.6-word-report.
 
 ## Tech stack and constraints
 
@@ -423,6 +434,14 @@ All branches fork from main after v1.5-onnx.
       Classes: crack, dent, paint-off, scratch. mAP50 0.834.
       Trained on aircraft-skin-defects dataset (Roboflow, CC BY 4.0).
       Bundled at `lib/best.onnx`.
+    - docxtemplater: version 3.x. Bundled at `lib/docxtemplater.min.js`
+      (~125 KB). Fills Word template {markers} with inspection data.
+    - PizZip: Bundled at `lib/pizzip.min.js` (~35 KB). ZIP manipulation
+      for .docx generation. Required by docxtemplater.
+    - docxtemplater-image-module-free: version 1.1.1. Bundled at
+      `lib/docxtemplater-image.min.js` (~65 KB). Loaded but inactive —
+      incompatible with modern browsers (namespaceURI read-only).
+      Kept for future fix attempt.
 - No npm, no build step, no transpiler.
 - Must run identically on iOS Safari, Android Chrome, and desktop
   Chrome / Firefox / Edge.
@@ -443,13 +462,19 @@ All branches fork from main after v1.5-onnx.
     ├── icons/
     │   ├── icon-192.png        (PWA icon 192×192, DMT Accenture purple)
     │   └── icon-512.png        (PWA icon 512×512, DMT Accenture purple)
+    ├── templates/
+    │   └── inspection_report.docx  (DMT Word template — A4 landscape,
+    │                                Accenture purple header, all {markers})
     └── lib/
-        ├── opencv.js           (~9-10 MB, do not edit)
-        ├── heic2any.min.js     (~1 MB, do not edit)
-        ├── ort.min.js          (~530 KB, ONNX Runtime Web 1.18.0, do not edit)
-        ├── ort-wasm-simd.wasm  (~10 MB, ONNX Runtime Web, do not edit)
-        ├── ort-wasm.wasm       (~9.5 MB, ONNX Runtime Web, do not edit)
-        └── best.onnx           (~11.9 MB, YOLOv8 nano damage model)
+        ├── opencv.js               (~9-10 MB, do not edit)
+        ├── heic2any.min.js         (~1 MB, do not edit)
+        ├── ort.min.js              (~530 KB, ONNX Runtime Web 1.18.0, do not edit)
+        ├── ort-wasm-simd.wasm      (~10 MB, ONNX Runtime Web, do not edit)
+        ├── ort-wasm.wasm           (~9.5 MB, ONNX Runtime Web, do not edit)
+        ├── best.onnx               (~11.9 MB, YOLOv8 nano damage model)
+        ├── pizzip.min.js           (~35 KB, ZIP manipulation for .docx)
+        ├── docxtemplater.min.js    (~125 KB, Word template engine)
+        └── docxtemplater-image.min.js  (~65 KB, image module — loaded, not active)
 
 ## Data handling and privacy
 
@@ -1074,11 +1099,27 @@ equivalent. This is noted explicitly only where the distinction matters.
     publicly (LinkedIn or technical blog). Return materialises at
     12–18 months. Cost: 1–2 hours/week.
 
-## How to start the next session (phase 24 — Local Word report)
+## How to start the next session
+
+Phase 24 is complete (v1.6-word-report tagged). Next phases depend on
+what Rubén decides to prioritise:
+
+**Option A — Phase 23A (ONNX → Canny):** ONNX bounding box pre-fills
+the Canny search region as an editable starting point. Inspector can
+always override. No retraining needed. Works best for scratch, crack,
+blend-out. Branch: feature/phase-23a-onnx-canny.
+
+**Option B — Inspection session + PDF export (phases 27/29):**
+Groups multiple damages into one session and generates a PDF with
+photos embedded as base64. Resolves the photo embedding limitation
+of phase 24. No external dependencies.
+
+**Option C — Azure Dashboard (second portfolio project):**
+Separate repo. Historical inspection sessions, filters by asset/date/type.
+Demonstrates real Azure architecture. Covers AZ-204 content directly.
 
 When opening a new chat:
-
-1. Confirm that the latest app.js, index.html and this
+1. Confirm that the latest app.js, index.html, sw.js and this
    PROJECT_CONTEXT.md are present in project files.
 2. Read PROJECT_CONTEXT.md and app.js before doing anything else.
 3. When code inspection is needed, read specific fragments by line
@@ -1087,23 +1128,3 @@ When opening a new chat:
    plain language.
 5. Deliver changes as copy-pasteable fragments for VS Code, not as
    whole-file replacements. Explain each fragment before presenting it.
-
-Phase 24 covers local Word report generation — no network, no Azure,
-no privacy breach:
-
-  Prerequisites: Rubén provides the Accenture Word template (.docx)
-  with {markers} placed at the position of each data field.
-  Suggested markers: {tipo_dano}, {confianza}, {dim1_nombre},
-  {dim1_valor}, {dim2_nombre}, {dim2_valor}, {escala}, {marcador},
-  {fecha}, {dispositivo}, {inspector}.
-
-  Libraries: docxtemplater + PizZip (~160 KB total, both local in lib/).
-  Template stored in templates/inspection_report.docx.
-  Output: editable .docx downloaded to device, ready to upload to SAP.
-
-  Active branch to open: feature/phase-24-word-report
-  Suggested commit message: `phase 24 complete: local Word report export`
-  Tag after merge to main: v1.6-word-report
-
-  NOTE: Phase 23A (ONNX → Canny automatic connection) follows phase 24
-  and requires no retraining. One session. Branch: feature/phase-23a-onnx-canny.
