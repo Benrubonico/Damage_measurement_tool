@@ -196,6 +196,14 @@ Ongoing improvements to the Damage Measurement Tool, in planned order:
   Photos added manually in Word for now. Image embedding planned for
   phase 29 (PDF export, HTML + base64 approach, no external dependencies).
   Tag: v1.6-word-report.
+- Phase 22 — ONNX bounding boxes + automatic dimension estimate. ← NEXT
+  Toggle button in left panel (visible when detections exist). Draws each
+  detection as a labelled rectangle on the canvas with its approximate
+  dimensions in mm: "Dent 96% — ~45×32 mm". Dimensions computed from
+  bbox pixel size × state.mmPerPixel. Prefixed with ~ to distinguish from
+  precision measurements. Boxes never appear on exported JPEGs. This phase
+  is the visual foundation for Phase 23A.
+  Tag: v1.7-onnx-bbox.
 - Phase 23A — ONNX → Canny automatic connection. No retraining needed.
   When ONNX detects damage and inspector taps Auto-detect, the ONNX
   bounding box pre-fills the Canny search region automatically. Inspector
@@ -203,7 +211,7 @@ Ongoing improvements to the Damage Measurement Tool, in planned order:
   always available. All three modes (ONNX badge, Canny auto, manual)
   coexist — none replaces another. Works best for scratch, crack and
   blend-out (visible boundary). Less reliable for diffuse dents.
-  Tag: v1.7-onnx-canny.
+  Tag: v1.8-onnx-canny.
 - Phase 23B — Domain-aware ONNX: rivets and panel edges. Requires P3
   (new dataset with rivet and edge classes, retrain, export new .onnx).
   Proposes cota distance from damage edge to nearest rivet centre
@@ -342,9 +350,13 @@ Ongoing improvements to the Damage Measurement Tool, in planned order:
 21. ✅ ONNX Runtime Web (basic): YOLOv8 nano model integrated in browser.
     Automatic inference on photo load. Text summary badge bottom-right.
     No bounding boxes. ONNX Runtime Web 1.18.0 local. Tag v1.5-onnx.
+22. ⏸ ONNX bounding boxes + automatic dimension estimate: toggle button
+    draws detection rectangles on canvas with approximate mm dimensions
+    ("Dent 96% — ~45×32 mm"). Visual foundation for phase 23A.
+    Tag v1.7-onnx-bbox.
 23A. ⏸ ONNX → Canny automatic connection: ONNX bounding box pre-fills
      Canny search region when inspector taps Auto-detect. No retraining.
-     All measurement modes remain available. Tag v1.7-onnx-canny.
+     All measurement modes remain available. Tag v1.8-onnx-canny.
 23B. ⏸ Domain-aware ONNX (rivets + edges): requires P3 (new dataset,
      retrain). Proposes rivet-to-damage cota automatically.
 24. ✅ Local Word report: three-step wizard (overview photo → detail photo
@@ -409,6 +421,7 @@ Worked directly on main.
 
 ### Planned branches
 
+- `feature/phase-22-onnx-bbox` — ONNX bounding boxes + automatic mm estimate. ← NEXT
 - `feature/phase-23a-onnx-canny` — ONNX bounding box → Canny auto ROI.
 - `feature/phase-23b-domain-aware` — rivets and edges (requires P3).
 
@@ -1099,24 +1112,20 @@ equivalent. This is noted explicitly only where the distinction matters.
     publicly (LinkedIn or technical blog). Return materialises at
     12–18 months. Cost: 1–2 hours/week.
 
-## How to start the next session
+## How to start the next session (Phase 22 — ONNX bbox + auto dimension)
 
-Phase 24 is complete (v1.6-word-report tagged). Next phases depend on
-what Rubén decides to prioritise:
+Phases completed: 1–18, 21, 24. Tags: v1.0-core through v1.6-word-report.
 
-**Option A — Phase 23A (ONNX → Canny):** ONNX bounding box pre-fills
-the Canny search region as an editable starting point. Inspector can
-always override. No retraining needed. Works best for scratch, crack,
-blend-out. Branch: feature/phase-23a-onnx-canny.
+Confirmed roadmap order (decided June 2026):
+1. Phase 22 — ONNX bbox visualisation + automatic mm estimate ← NEXT
+2. Phase 23A — ONNX bbox pre-fills Canny search region (no retraining)
+3. Stereometry improved — diagnosis session first, then fix
+4. Retrain model on public car damage dataset (no authorisation needed)
+5. Photos in Word via ZIP direct manipulation (closes phase 24 debt)
+6. Inspection session + PDF export (only when tool becomes official)
 
-**Option B — Inspection session + PDF export (phases 27/29):**
-Groups multiple damages into one session and generates a PDF with
-photos embedded as base64. Resolves the photo embedding limitation
-of phase 24. No external dependencies.
-
-**Option C — Azure Dashboard (second portfolio project):**
-Separate repo. Historical inspection sessions, filters by asset/date/type.
-Demonstrates real Azure architecture. Covers AZ-204 content directly.
+Phase 23B (rivets/edges) blocked until real aerospace data authorised.
+Azure Dashboard deferred — Azure free tier expired, not cost-effective now.
 
 When opening a new chat:
 1. Confirm that the latest app.js, index.html, sw.js and this
@@ -1128,3 +1137,15 @@ When opening a new chat:
    plain language.
 5. Deliver changes as copy-pasteable fragments for VS Code, not as
    whole-file replacements. Explain each fragment before presenting it.
+
+Phase 22 — ONNX bounding boxes + automatic dimension estimate:
+  Toggle button in left panel. Only visible in measure-idle when
+  state.onnxDetections.length > 0. Draws each detection as a coloured
+  rectangle on canvas with label: "Dent 96% — ~45×32 mm". Dimensions
+  from bbox px × state.mmPerPixel. ~ prefix marks as approximate.
+  state.showOnnxBoxes flag. Boxes never appear on exported JPEGs.
+  Design decisions confirmed: text label (not engineering cota lines),
+  button-triggered (not automatic), all detections shown (not just top).
+  Active branch: feature/phase-22-onnx-bbox
+  Commit message: phase 22 complete: ONNX bbox visualisation + auto dimension
+  Tag after merge: v1.7-onnx-bbox

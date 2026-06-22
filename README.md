@@ -185,6 +185,7 @@ All users will automatically receive the update on their next visit.
 | 18 | ✅ Done | Stereometry: experimental depth estimation from two photos — **tagged v1.4-stereometry** |
 | 21 | ✅ Done | ONNX Runtime Web: YOLOv8 nano damage detection in browser — **tagged v1.5-onnx** |
 | 24 | ✅ Done | Local Word report wizard: docxtemplater + PizZip, DMT template, no network — **tagged v1.6-word-report** |
+| 22 | ⏸ Planned | ONNX bbox visualisation + automatic mm estimate per detection — **next** |
 | 23A | ⏸ Planned | ONNX bbox → Canny auto ROI: pre-fills search region, inspector can override |
 | 23B | ⏸ Planned | Domain-aware detection: rivets and edges (requires model retraining) |
 | 27/29 | ⏸ Planned | Inspection session + PDF export with embedded photos |
