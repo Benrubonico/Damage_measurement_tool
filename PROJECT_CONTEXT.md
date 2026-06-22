@@ -1125,7 +1125,7 @@ Confirmed roadmap order (decided June 2026):
 6. Inspection session + PDF export (only when tool becomes official)
 
 Phase 23B (rivets/edges) blocked until real aerospace data authorised.
-Azure Dashboard deferred — Azure free tier expired, not cost-effective now.
+Azure Dashboard deferred — Azure free tier expired, not cost-effective now.Implementar Phase 22: cajas ONNX y estimación automática de dimensiones
 
 When opening a new chat:
 1. Confirm that the latest app.js, index.html, sw.js and this
