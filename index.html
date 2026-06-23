@@ -55,6 +55,7 @@
       display: flex;
       align-items: center;
       justify-content: center;
+      padding-top: 64px;   /* reserve space for the floating hint bar */
     }
 
     #canvas {
@@ -234,6 +235,7 @@ body.clean #left-panel,
 body.clean #left-panel-tab,
 body.clean #panel-backdrop { display: none !important; }
 body.clean #fab-exit-clean { display: flex !important; }
+body.clean #stage          { padding-top: 0; }         /* full photo visible in clean/export mode */
 
     #fab-exit-clean {
       position: fixed;
@@ -1182,6 +1184,7 @@ details[open] > summary::after   { content: '▾'; }
     <button id="btn-save-panel"          style="display:none">💾 Save</button>
     <button id="btn-share-panel"         style="display:none">📤 Share</button>
     <button id="btn-report-panel"        style="display:none">📄 Word report</button>
+    <button id="btn-onnx-boxes"          style="display:none">🔲 Show damage boxes</button>
   </div>
 
   <div class="how-to" style="border-top: 1px solid #222;">

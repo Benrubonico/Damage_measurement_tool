@@ -446,8 +446,9 @@ const state = {
   pendingRectProposal: null, // result of suggestDamageEndpointsInRect(), held while modal is open
   lensModel: null,          // EXIF Model string of the photo's camera, or null (phase 17)
 
-  /* ---- ONNX detections (phase 21) ---- */
+  /* ---- ONNX detections (phase 21 / 22) ---- */
   onnxDetections: [],       // array of {label, confidence, x, y, w, h} in image-space px
+  showOnnxBoxes: false,     // true = draw bounding boxes on canvas (phase 22); false = badge only
 
   /* ---- Word report (phase 24) ---- */
   lastStereoDepthMm: null,  // last stereo depth result, for report form pre-fill
@@ -490,6 +491,7 @@ const btnCleanPanel    = document.getElementById('btn-clean-panel');
 const btnSavePanel     = document.getElementById('btn-save-panel');
 const btnSharePanel    = document.getElementById('btn-share-panel');
 const btnReportPanel   = document.getElementById('btn-report-panel');
+const btnOnnxBoxes     = document.getElementById('btn-onnx-boxes');
 
 
 /* ============================================================
@@ -729,6 +731,7 @@ function loadPhotoFromBlob(blob) {
       state.currentStroke = null;
       state.heatmapCanvas = null;
       state.onnxDetections = [];   // clear previous detections on new photo
+      state.showOnnxBoxes  = false; // reset boxes toggle on new photo (phase 22)
       state.showSafeZone = true;   // shown until first point is placed
       resetZoom();
       /* Phase 17: apply lens undistortion if a profile exists for
@@ -1099,6 +1102,7 @@ async function runOnnxDetection() {
 
     state.onnxDetections = kept;
     console.log(`Phase 21: ${kept.length} detection(s) after NMS.`, kept);
+    updateButtons();   // phase 22: refresh button visibility once detections arrive
     redraw();
 
   } catch (err) {
@@ -1418,10 +1422,50 @@ function redraw() {
     }
   }
 
+  /* ONNX BOUNDING BOXES (phase 22)
+     ----------------------------------------------------------
+     Drawn only when the inspector has toggled them on and only
+     in interactive mode — never on exported JPEGs.
+     Each box is coloured by damage class and carries a label
+     with class name, confidence, and approximate bbox size in
+     mm (bbox px × mmPerPixel). Prefixed with ~ to distinguish
+     from precision measurements. Boxes are drawn before the
+     text badge so the badge always renders on top.
+     ---------------------------------------------------------- */
+  if (!exportMode && state.showOnnxBoxes &&
+      state.onnxDetections && state.onnxDetections.length > 0) {
+    state.onnxDetections.forEach(d => {
+      const color = ONNX_CLASS_COLORS[ONNX_CLASS_NAMES.indexOf(d.label)] || '#ffffff';
+      const cap   = d.label.charAt(0).toUpperCase() + d.label.slice(1);
+      const pct   = Math.round(d.confidence * 100);
+
+      /* Bounding box rectangle */
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.lineWidth   = stroke * 1.5;
+      ctx.strokeRect(d.x, d.y, d.w, d.h);
+      ctx.restore();
+
+      /* Label: include mm size only when a calibration scale exists */
+      const labelText = state.mmPerPixel
+        ? `${cap} ${pct}% — ~${Math.round(d.w * state.mmPerPixel)}×${Math.round(d.h * state.mmPerPixel)} mm`
+        : `${cap} ${pct}%`;
+
+      /* Centre the label just above the box top edge.
+         If there is not enough room above, place it inside instead. */
+      const lbFontSz  = fontSize * 0.85;
+      const lbHalfH   = (lbFontSz + 12 * k) / 2;
+      const lbCenterX = d.x + d.w / 2;
+      const lbCenterY = (d.y >= lbHalfH * 2 + 4 * k)
+        ? d.y - lbHalfH - 2 * k     // above the box
+        : d.y + lbHalfH + 2 * k;    // inside top of box
+      drawLabelAtPoint({ x: lbCenterX, y: lbCenterY }, labelText, color, lbFontSz, k);
+    });
+  }
+
   if (!exportMode && state.onnxDetections && state.onnxDetections.length > 0) {
-    /* No bounding boxes — too invasive alongside dimension lines
-       and future overlays (rivets, edges, phase 23+).
-       Show only a text summary badge, bottom-right of the image. */
+    /* Text summary badge — always shown regardless of box toggle,
+       so the inspector always has the damage type at a glance. */
     const sumFontSz  = fontSize * 0.85;
     const sumPad     = 7 * k;
     const sumSpacing = sumFontSz + sumPad;
@@ -2677,7 +2721,7 @@ function updateButtons() {
     .forEach(b => b.style.display = 'none');
 
   /* Left-panel secondary buttons */
-  [btnCleanPanel, btnSavePanel, btnSharePanel, btnReportPanel]
+  [btnCleanPanel, btnSavePanel, btnSharePanel, btnReportPanel, btnOnnxBoxes]
     .forEach(b => b.style.display = 'none');
 
   /* Floating view-original button */
@@ -2702,6 +2746,9 @@ function updateButtons() {
     btnSavePanel.style.display       = 'block';
     btnSharePanel.style.display      = 'block';
     btnReportPanel.style.display     = 'block';
+    /* Phase 22: show boxes toggle only when the model found detections */
+    btnOnnxBoxes.style.display  = (state.onnxDetections && state.onnxDetections.length > 0) ? 'block' : 'none';
+    btnOnnxBoxes.textContent    = state.showOnnxBoxes ? '🔳 Hide damage boxes' : '🔲 Show damage boxes';
     if (state.originalPhoto) fabViewOriginal.style.display = 'block';
     fabHeatmap.style.display = 'block';
   }
@@ -3159,6 +3206,13 @@ btnSharePanel.addEventListener('click', () => {
       }
     }, 'image/jpeg', 0.92);
   });
+});
+
+/* Phase 22: toggle ONNX bounding boxes on/off */
+btnOnnxBoxes.addEventListener('click', () => {
+  state.showOnnxBoxes = !state.showOnnxBoxes;
+  btnOnnxBoxes.textContent = state.showOnnxBoxes ? '🔳 Hide damage boxes' : '🔲 Show damage boxes';
+  redraw();
 });
 
 /* ============================================================
