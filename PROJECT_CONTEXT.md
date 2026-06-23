@@ -222,7 +222,9 @@ Ongoing improvements to the Damage Measurement Tool, in planned order:
 - Phase new — Inspection session + PDF export. Groups multiple damages into
   one session (tail number / chassis, date, inspector). Generates signed PDF
   with all damages, photos, measurements and ONNX types as formal deliverable.
-  Prerequisite: Phase 24 complete. Tag: v1.9-inspection-session.
+  Prerequisite: Phase 24 complete and dual-model integration done. Tag: v1.9-inspection-session.
+  Note: moved to last in active roadmap (decided June 2026) — dual-model vehicle
+  mode prioritised first as it has higher portfolio value without confidentiality constraints.
 - Phase new — Azure OpenAI (optional, future). LLM generates narrative text,
   SRM severity classification, action code suggestions from JSON measurements.
   Data sent: numbers only, never photos. For corporate use: Accenture Azure
@@ -1025,12 +1027,12 @@ Phases 1–18 and 21 complete. P1/P2 complete. Tag v1.5-onnx on main.
 4. Phase 23A — ONNX → Canny automatic connection. No retraining.
    One session. Best value-to-effort ratio in the roadmap.
 5. Phase new — Stereometry improved. Diagnosis first, then fix.
-6. Phase new — Inspection session + PDF export.
+6. Phase new — Dual-model vehicle mode + portfolio dashboard.
+    See "Second portfolio project" section below for full plan.
 7. Phase 23B — Domain-aware rivets/edges. Requires P3 first.
 8. Phase 19 — Web Workers: only if UI freezing observed on real device.
 9. Phase new — Azure OpenAI (optional). Explicit decision required.
-10. Phase new — Dual-model vehicle mode + portfolio dashboard.
-    See "Second portfolio project" section below for full plan.
+10. Phase new — Inspection session + PDF export.
 11. Phase 20 — DISCARDED. Native camera superior on mobile.
 
 **Solve the simple problem well before adding complexity.**
