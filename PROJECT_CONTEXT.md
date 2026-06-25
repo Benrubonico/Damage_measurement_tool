@@ -169,14 +169,14 @@ Tagged v1.5-onnx after phase 21. Tagged v1.6-word-report after phase 24.
   (II/MM) rather than assuming a fixed offset after Exif\0\0,
   making it robust to padding variations across Android devices.
 
-- ONNX damage detection (phase 21): YOLOv8 nano model (best.onnx, 11.9 MB, classes:
+- ONNX damage detection (phase 21): YOLOv8 nano model (best_aerospace.onnx, 11.9 MB, classes:
   crack, dent, paint-off, scratch, mAP50 0.834) runs entirely in the browser via
   ONNX Runtime Web 1.18.0 (local, no CDN). Inference launches automatically after
   photo load — with ArUco marker (after rectification) or without (immediately after
   fallback to manual flow). No bounding boxes drawn; results shown as a text summary
   badge bottom-right: "Damage type detected: Dent 96%". When nothing is detected above
   the confidence threshold (0.35), shows "No damage type detected". Never appears on
-  exported JPEGs. Model and runtime files in lib/ (best.onnx, ort.min.js,
+  exported JPEGs. Model and runtime files in lib/ (best_aerospace.onnx, ort.min.js,
   ort-wasm-simd.wasm, ort-wasm.wasm). ONNX_ENABLED flag allows disabling entirely.
 - ONNX WebGPU backend (added in phase 23A session, June 2026): ONNX Runtime now
   attempts the WebGPU execution provider first (GPU-accelerated, 3-10× faster),
@@ -192,7 +192,7 @@ Tagged v1.5-onnx after phase 21. Tagged v1.6-word-report after phase 24.
 Ongoing improvements to the Damage Measurement Tool, in planned order:
 
 - P1/P2 — ✅ COMPLETE. YOLOv8 nano trained on aircraft-skin-defects dataset
-  (10,652 images, classes: crack, dent, paint-off, scratch), exported to best.onnx
+  (10,652 images, classes: crack, dent, paint-off, scratch), exported to best_aerospace.onnx
   (11.9 MB, mAP50 0.834). Integrated in phase 21.
 - Phase 21 — ✅ COMPLETE. ONNX Runtime Web integrated. See implemented features above.
 - Phase 24 — ✅ COMPLETE. Local Word report generation. Three-step wizard
@@ -465,10 +465,14 @@ All branches up to v1.8-onnx-canny merged to main.
     - ONNX Runtime Web: version 1.18.0. Bundled at `lib/ort.min.js`
       (~530 KB) + `lib/ort-wasm-simd.wasm` (~10 MB) + `lib/ort-wasm.wasm`
       (~9.5 MB). Local — no CDN — for full offline PWA support.
-    - best.onnx: YOLOv8 nano damage detection model (~11.9 MB).
+    - best_aerospace.onnx: YOLOv8 nano damage detection model (~11.9 MB).
       Classes: crack, dent, paint-off, scratch. mAP50 0.834.
       Trained on aircraft-skin-defects dataset (Roboflow, CC BY 4.0).
-      Bundled at `lib/best.onnx`.
+      Bundled at `lib/best_aerospace.onnx`.
+    - best_vehicle.onnx: YOLOv8 nano vehicle damage detection model (~11.9 MB).
+      Classes: crack, dent, glass shatter, lamp broken, scratch, tire flat. mAP50 0.700.
+      Trained on car-exterior-damage-detection v2 (Roboflow, CC BY 4.0), 25/06/2026.
+      Bundled at `lib/best_vehicle.onnx`. Pending dual-mode integration in app.
     - docxtemplater: version 3.x. Bundled at `lib/docxtemplater.min.js`
       (~125 KB). Fills Word template {markers} with inspection data.
     - PizZip: Bundled at `lib/pizzip.min.js` (~35 KB). ZIP manipulation
@@ -506,7 +510,8 @@ All branches up to v1.8-onnx-canny merged to main.
         ├── ort.min.js              (~530 KB, ONNX Runtime Web 1.18.0, do not edit)
         ├── ort-wasm-simd.wasm      (~10 MB, ONNX Runtime Web, do not edit)
         ├── ort-wasm.wasm           (~9.5 MB, ONNX Runtime Web, do not edit)
-        ├── best.onnx               (~11.9 MB, YOLOv8 nano damage model)
+        ├── best_aerospace.onnx     (~11.9 MB, YOLOv8 nano aerospace model)
+        ├── best_vehicle.onnx       (~11.9 MB, YOLOv8 nano vehicle model — pending dual-mode integration)
         ├── pizzip.min.js           (~35 KB, ZIP manipulation for .docx)
         ├── docxtemplater.min.js    (~125 KB, Word template engine)
         └── docxtemplater-image.min.js  (~65 KB, image module — loaded, not active)
@@ -1140,8 +1145,8 @@ with one click."
 
 ### Status
 
-- [ ] Find and download car damage dataset from Roboflow Universe
-- [ ] Train best_vehicle.onnx (same WSL2/RTX 3050 Ti setup)
+- [x] Find and download car damage dataset from Roboflow Universe — car-exterior-damage-detection v2, CC BY 4.0
+- [x] Train best_vehicle.onnx (same WSL2/RTX 3050 Ti setup) — done 25/06/2026, mAP50 0.700, 6 classes
 - [ ] Add mode selector to app + lazy model loading
 - [ ] Generate 25–30 Word reports using car photos
 - [ ] Build Streamlit dashboard reading those reports
@@ -1206,7 +1211,7 @@ equivalent. This is noted explicitly only where the distinction matters.
     Bounding-box-only datasets cannot be used with yolov8n-seg without
     re-annotation.
 17. **Train a model with YOLOv8n-seg (instance segmentation).** ✅ Current
-    model (best.onnx) is yolov8n detection — bounding boxes only. Next
+    model (best_aerospace.onnx) is yolov8n detection — bounding boxes only. Next
     training iteration must use yolov8n-seg to produce pixel-level instance
     masks. Masks enable automatic contour extraction and real damage geometry
     (length, width, area, orientation via cv.minAreaRect), which is required
