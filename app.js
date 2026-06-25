@@ -214,7 +214,7 @@ const AUTO_DETECT_WINDOW_MM = 120;
    ============================================================ */
 const ONNX_ENABLED            = true;
 const ONNX_CONFIDENCE_THRESHOLD = 0.35;
-const ONNX_MODEL_PATH         = './lib/best.onnx';
+const ONNX_MODEL_PATH         = './lib/best_aerospace.onnx';
 
 /* Class names in the same order as the model was trained.
    Index 0 = crack, 1 = dent, 2 = paint-off, 3 = scratch.
