@@ -35,6 +35,7 @@ Tagged as v1.0-core after phase 13 completion.
 Tagged as v1.1-extract-app-js after phase 14 completion.
 Tagged as v1.2-multimarker after phase 16 completion.
 Tagged v1.3-lens-calibration after phase 17. Tagged v1.4-stereometry after phase 18.
+Tagged v1.5-onnx after phase 21. Tagged v1.6-word-report after phase 24.
 
 ### Implemented features
 
@@ -168,31 +169,83 @@ Tagged v1.3-lens-calibration after phase 17. Tagged v1.4-stereometry after phase
   (II/MM) rather than assuming a fixed offset after Exif\0\0,
   making it robust to padding variations across Android devices.
 
+- ONNX damage detection (phase 21): YOLOv8 nano model (best.onnx, 11.9 MB, classes:
+  crack, dent, paint-off, scratch, mAP50 0.834) runs entirely in the browser via
+  ONNX Runtime Web 1.18.0 (local, no CDN). Inference launches automatically after
+  photo load — with ArUco marker (after rectification) or without (immediately after
+  fallback to manual flow). No bounding boxes drawn; results shown as a text summary
+  badge bottom-right: "Damage type detected: Dent 96%". When nothing is detected above
+  the confidence threshold (0.35), shows "No damage type detected". Never appears on
+  exported JPEGs. Model and runtime files in lib/ (best.onnx, ort.min.js,
+  ort-wasm-simd.wasm, ort-wasm.wasm). ONNX_ENABLED flag allows disabling entirely.
+- ONNX WebGPU backend (added in phase 23A session, June 2026): ONNX Runtime now
+  attempts the WebGPU execution provider first (GPU-accelerated, 3-10× faster),
+  falling back to WASM (CPU) automatically if unavailable. Requires Chrome 113+,
+  Edge 113+, or Safari 17.4+. Older browsers go directly to WASM — identical
+  behaviour to before. navigator.gpu checked explicitly before attempting WebGPU
+  to avoid error noise. If the WebGPU EP throws for any reason, the session is
+  recreated with WASM. No change to inference results, only execution speed.
+  Confirmed backend logged on startup: "ONNX model loaded OK (webgpu/wasm)".
+
 ### Pending work (current focus)
 
 Ongoing improvements to the Damage Measurement Tool, in planned order:
 
-- P1/P2 — Dataset (aircraft/vehicle) + YOLOv8 training → ONNX export.
-  In progress. Dataset at ~/datasets/aircraft-skin-defects (10,652 images,
-  classes: crack, dent, paint-off, scratch). Training on RTX 3050 Ti via WSL2.
-- Phase 21 — ONNX Runtime Web (basic): integrate trained model into app
-  for client-side damage detection on static photos. No backend required.
-- Phase 23 — Domain-aware ONNX: model detects rivets and panel edges,
-  proposes protocol-driven measurements automatically (e.g. distance from
-  damage edge to nearest rivet centre).
-- Phase 24 — AI-generated inspection report: send dimension data (JSON,
-  no images) to Azure OpenAI and receive a structured narrative report.
+- P1/P2 — ✅ COMPLETE. YOLOv8 nano trained on aircraft-skin-defects dataset
+  (10,652 images, classes: crack, dent, paint-off, scratch), exported to best.onnx
+  (11.9 MB, mAP50 0.834). Integrated in phase 21.
+- Phase 21 — ✅ COMPLETE. ONNX Runtime Web integrated. See implemented features above.
+- Phase 24 — ✅ COMPLETE. Local Word report generation. Three-step wizard
+  (overview photo → detail photo → metadata form). docxtemplater + PizZip
+  (local, no network). Fills DMT Word template with all measurements, damage
+  type, positioning data, scale, date and inspector. Downloads editable .docx.
+  Note: photo embedding deferred — docxtemplater-image-module-free is
+  incompatible with modern browsers (namespaceURI read-only in DOM).
+  Photos added manually in Word for now. Image embedding planned for
+  phase 29 (PDF export, HTML + base64 approach, no external dependencies).
+  Tag: v1.6-word-report.
+- Phase 22 — ✅ COMPLETE. ONNX bounding boxes + automatic dimension estimate.
+  Toggle button in left panel (visible when detections exist). Draws each
+  detection as a labelled rectangle with approximate mm dimensions
+  ("Dent 96% — ~45×32 mm"). Boxes excluded from exported JPEGs.
+  Tag: v1.7-onnx-bbox.
+- Phase 23A — ✅ COMPLETE. ONNX → Canny automatic connection. Pressing
+  Auto-detect when ONNX detections exist pre-fills the Canny search region
+  with the highest-confidence bbox, shown as a blue dashed rectangle.
+  Inspector confirms with ✓ Use ONNX region or draws their own rectangle
+  to override. Manual fallback always available. Tag: v1.8-onnx-canny.
+  Also in this session: WebGPU backend for ONNX Runtime (see tech stack).
+- Stereometry improved ← NEXT. Diagnosis session first (Realme GT 7 Pro,
+  object of known depth, identify dominant error source). Then fix.
+  Tag: v1.8-stereo-improved.
+- Phase 23B — Domain-aware ONNX: rivets and panel edges. Requires P3
+  (new dataset with rivet and edge classes, retrain, export new .onnx).
+  Proposes cota distance from damage edge to nearest rivet centre
+  automatically. Deferred until P3 is complete.
+- Phase new — Stereometry improved. Diagnosis session first (Realme GT 7 Pro
+  calibrated, measure object of known depth, identify dominant error source).
+  Then fix based on findings. Tag: v1.8-stereo-improved.
+- Phase new — Inspection session + PDF export. Groups multiple damages into
+  one session (tail number / chassis, date, inspector). Generates signed PDF
+  with all damages, photos, measurements and ONNX types as formal deliverable.
+  Prerequisite: Phase 24 complete and dual-model integration done. Tag: v1.9-inspection-session.
+  Note: moved to last in active roadmap (decided June 2026) — dual-model vehicle
+  mode prioritised first as it has higher portfolio value without confidentiality constraints.
+- Phase new — Azure OpenAI (optional, future). LLM generates narrative text,
+  SRM severity classification, action code suggestions from JSON measurements.
+  Data sent: numbers only, never photos. For corporate use: Accenture Azure
+  tenant (already deployed). For portfolio: personal Azure subscription.
+  Not started — requires explicit decision to break local-only constraint.
+- Phase new — Azure Dashboard (second portfolio project). Separate web
+  interface showing historical inspection sessions. Filters by asset, date,
+  damage type. Azure Blob Storage + Cosmos DB + Entra ID authentication.
+  Demonstrates real Azure architecture beyond the field app. Covers AZ-204
+  content directly. Separate repo.
 - Phase 19 — Web Workers: implement only if ONNX inference causes
-  unacceptable UI freezing. Not a blocker for phases 21/23/24.
+  unacceptable UI freezing on real device. Not yet observed.
 - Phase 20 — Real-time capture assistant: DISCARDED. getUserMedia() on
-  mobile gives worse image quality than native camera (autofocus,
-  optical zoom, iOS restrictions). Native camera workflow already solves
-  the operational problem phase 20 was designed to address.
-
-A separate second portfolio project focused on AI applied to vehicle
-damage inspection (pipeline, dataset, model training) will be planned
-independently when the tool reaches maturity. It is not a phase of
-this project.
+  mobile gives worse image quality than native camera. Native camera
+  workflow already solves the operational problem.
 
 ### Deferred to separate chats
 
@@ -297,17 +350,30 @@ this project.
     deltaZ = disparity * distanceMm / baselinePx. Validated
     experimentally: ~15–25% error on non-reflective surfaces.
     Marked experimental in UI. Tag v1.4-stereometry.
-19. ⏸ ONNX Runtime Web (phase 21): custom-trained damage model in
-    browser. Prerequisite: P2 (trained .onnx ready). Next active phase.
+19. ⏸ Web Workers: implement only if ONNX inference causes unacceptable
+    UI freezing. Not a blocker for phases 23/24.
 20. ❌ Real-time capture assistant: DISCARDED. getUserMedia() on mobile
     gives inferior image quality vs native camera. Native camera
     workflow already covers the operational need.
-21. ⏸ ONNX Runtime Web (basic): integrate .onnx model for client-side
-    damage detection on static photos.
-23. ⏸ Domain-aware ONNX: detect rivets and panel edges, propose
-    automatic cota measurements (distance from damage to nearest rivet).
-24. ⏸ AI-generated inspection report: send dimension JSON to Azure
-    OpenAI, receive structured narrative report. No images to API.
+21. ✅ ONNX Runtime Web (basic): YOLOv8 nano model integrated in browser.
+    Automatic inference on photo load. Text summary badge bottom-right.
+    No bounding boxes. ONNX Runtime Web 1.18.0 local. Tag v1.5-onnx.
+22. ✅ ONNX bounding boxes + automatic dimension estimate: toggle button
+    draws detection rectangles on canvas with approximate mm dimensions
+    ("Dent 96% — ~45×32 mm"). Boxes excluded from exported JPEGs.
+    Tag v1.7-onnx-bbox.
+23A. ✅ ONNX → Canny automatic connection: pressing Auto-detect when ONNX
+     detections exist pre-fills the Canny search region with the
+     highest-confidence bbox (blue dashed rectangle). Inspector confirms
+     with ✓ Use ONNX region or draws their own to override. Manual
+     fallback always preserved. Tag v1.8-onnx-canny.
+23B. ⏸ Domain-aware ONNX (rivets + edges): requires P3 (new dataset,
+     retrain). Proposes rivet-to-damage cota automatically.
+24. ✅ Local Word report: three-step wizard (overview photo → detail photo
+    → metadata form). docxtemplater + PizZip local. DMT-branded template
+    (A4 landscape, Accenture purple header, tables for damage and
+    positioning data). Photo embedding deferred (browser incompatibility).
+    Tag v1.6-word-report.
 
 ## Distribution strategy
 
@@ -349,12 +415,39 @@ Realme GT 7 Pro calibrated, EXIF reader for JPEG and HEIC.
 Commit message: `phase 17 complete: per-device lens calibration`
 Merge branch: feature/phase-17-lens-calibration → main.
 
+### Checkpoint at phase 21 close — completed
+
+✅ Tag: `v1.5-onnx` — ONNX Runtime Web integration, YOLOv8 nano damage
+detection in browser. Worked directly on main (no feature branch).
+Commit message: `phase 21 complete: ONNX damage detection`
+
+### Checkpoint at phase 24 close — completed
+
+✅ Tag: `v1.6-word-report` — local Word report wizard, docxtemplater + PizZip,
+DMT-branded A4 landscape template. Photo embedding deferred (browser
+incompatibility with docxtemplater-image-module-free).
+Commit message: `phase 24 complete: Word report wizard`
+Worked directly on main.
+
+### Checkpoint at phase 22 close — completed
+
+✅ Tag: `v1.7-onnx-bbox` — ONNX bounding boxes on canvas with approximate
+mm dimensions. Toggle button in left panel.
+Commit message: `phase 22 complete: ONNX bbox visualisation + auto dimension`
+Branch: feature/phase-22-onnx-bbox → main.
+
+### Checkpoint at phase 23A close — completed
+
+✅ Tag: `v1.8-onnx-canny` — ONNX bbox pre-fills Canny search region.
+WebGPU backend for ONNX Runtime (falls back to WASM automatically).
+Commit message: `phase 23A complete: ONNX bbox pre-fills Canny search region`
+Branch: feature/phase-23a-onnx-canny → main.
+
 ### Planned branches
 
-- `feature/phase-18-stereometry` — light 3D from two photos.
-- `feature/phase-19-onnx` — ONNX Runtime Web integration.
+- `feature/phase-23b-domain-aware` — rivets and edges (requires P3). Blocked.
 
-All branches fork from main after v1.3-lens-calibration.
+All branches up to v1.8-onnx-canny merged to main.
 
 ## Tech stack and constraints
 
@@ -369,6 +462,21 @@ All branches fork from main after v1.3-lens-calibration.
       build does (confirmed by listing cv keys at runtime).
     - heic2any: version 0.0.4. Bundled at `lib/heic2any.min.js`.
       ~1 MB. Self-contained (WebAssembly embedded as base64).
+    - ONNX Runtime Web: version 1.18.0. Bundled at `lib/ort.min.js`
+      (~530 KB) + `lib/ort-wasm-simd.wasm` (~10 MB) + `lib/ort-wasm.wasm`
+      (~9.5 MB). Local — no CDN — for full offline PWA support.
+    - best.onnx: YOLOv8 nano damage detection model (~11.9 MB).
+      Classes: crack, dent, paint-off, scratch. mAP50 0.834.
+      Trained on aircraft-skin-defects dataset (Roboflow, CC BY 4.0).
+      Bundled at `lib/best.onnx`.
+    - docxtemplater: version 3.x. Bundled at `lib/docxtemplater.min.js`
+      (~125 KB). Fills Word template {markers} with inspection data.
+    - PizZip: Bundled at `lib/pizzip.min.js` (~35 KB). ZIP manipulation
+      for .docx generation. Required by docxtemplater.
+    - docxtemplater-image-module-free: version 1.1.1. Bundled at
+      `lib/docxtemplater-image.min.js` (~65 KB). Loaded but inactive —
+      incompatible with modern browsers (namespaceURI read-only).
+      Kept for future fix attempt.
 - No npm, no build step, no transpiler.
 - Must run identically on iOS Safari, Android Chrome, and desktop
   Chrome / Firefox / Edge.
@@ -389,9 +497,19 @@ All branches fork from main after v1.3-lens-calibration.
     ├── icons/
     │   ├── icon-192.png        (PWA icon 192×192, DMT Accenture purple)
     │   └── icon-512.png        (PWA icon 512×512, DMT Accenture purple)
+    ├── templates/
+    │   └── inspection_report.docx  (DMT Word template — A4 landscape,
+    │                                Accenture purple header, all {markers})
     └── lib/
-        ├── opencv.js           (~9-10 MB, do not edit)
-        └── heic2any.min.js     (~1 MB, do not edit)
+        ├── opencv.js               (~9-10 MB, do not edit)
+        ├── heic2any.min.js         (~1 MB, do not edit)
+        ├── ort.min.js              (~530 KB, ONNX Runtime Web 1.18.0, do not edit)
+        ├── ort-wasm-simd.wasm      (~10 MB, ONNX Runtime Web, do not edit)
+        ├── ort-wasm.wasm           (~9.5 MB, ONNX Runtime Web, do not edit)
+        ├── best.onnx               (~11.9 MB, YOLOv8 nano damage model)
+        ├── pizzip.min.js           (~35 KB, ZIP manipulation for .docx)
+        ├── docxtemplater.min.js    (~125 KB, Word template engine)
+        └── docxtemplater-image.min.js  (~65 KB, image module — loaded, not active)
 
 ## Data handling and privacy
 
@@ -903,29 +1021,132 @@ a damage report per vehicle registration number.
   official reports. Aerospace-specific format; vehicle equivalent
   would be a standardised damage diagram per insurance or fleet
   management standards.
-- **★ Domain-aware automatic measurement proposals (phase 23).** Once
-  a trained ONNX model is integrated (phase 21), it can learn domain-
-  specific measurement conventions automatically. Example in aerospace:
-  when a dent is detected near rivets, the model proposes the distance
-  from the damage edge to the nearest rivet centre — generating cotas
-  like a professional inspection drawing, automatically. No backend
-  required: all inference runs client-side via ONNX Runtime Web.
+- **★ Domain-aware automatic measurement proposals (phases 23A + 23B).**
+  Phase 23A (no retraining): ONNX bounding box feeds Canny as automatic
+  ROI — inspector gets proposed dimensions without drawing the rectangle.
+  Works for scratch, crack, blend-out. Less reliable for diffuse dents.
+  All measurement modes remain available; none replaces another.
+  Phase 23B (requires P3 retraining): model learns rivet and panel edge
+  classes, proposes cota distance from damage to nearest rivet centre
+  automatically. No backend required for either phase.
+- **Azure OpenAI inspection assistant (future, optional).** LLM receives
+  JSON measurements (never photos), returns SRM severity classification,
+  action codes, and narrative text for the report. Opens the door to:
+  severity scoring, automatic SRM lookup, multilingual reports, pattern
+  detection across sessions. Requires explicit decision to break
+  local-only constraint. Corporate path: Accenture Azure tenant.
 
-### Suggested order going forward (post phase 18)
+### Suggested order going forward (post phase 21)
 
-Phases 1–18 complete. Active parallel track: P1/P2 (dataset + training).
+Phases 1–18 and 21 complete. P1/P2 complete. Tag v1.5-onnx on main.
 
-1. P1/P2 — Complete YOLOv8 training on aircraft-skin-defects dataset,
-   export to ONNX. In progress on RTX 3050 Ti via WSL2.
-2. Phase 21 — ONNX Runtime Web (basic): integrate .onnx model into
-   the app for client-side damage detection on static photos.
-3. Phase 23 — Domain-aware: rivets, edges, automatic cota proposals.
-4. Phase 24 — AI report: Azure OpenAI generates structured narrative
-   from numeric measurement data. Fast to implement, high portfolio value.
-5. Phase 19 — Web Workers: only if ONNX inference causes UI freezing.
-6. Phase 20 — DISCARDED. Native camera superior on mobile.
+1. ✅ P1/P2 — YOLOv8 training + ONNX export. Complete.
+2. ✅ Phase 21 — ONNX Runtime Web basic integration. Complete.
+3. Phase 24 — Local Word report (docxtemplater, no network).
+   Prerequisite: Word template from Rubén with {markers}.
+4. Phase 23A — ONNX → Canny automatic connection. No retraining.
+   One session. Best value-to-effort ratio in the roadmap.
+5. Phase new — Stereometry improved. Diagnosis first, then fix.
+6. Phase new — Dual-model vehicle mode + portfolio dashboard.
+    See "Second portfolio project" section below for full plan.
+7. Phase 23B — Domain-aware rivets/edges. Requires P3 first.
+8. Phase 19 — Web Workers: only if UI freezing observed on real device.
+9. Phase new — Azure OpenAI (optional). Explicit decision required.
+10. Phase new — Inspection session + PDF export.
+11. Phase 20 — DISCARDED. Native camera superior on mobile.
 
 **Solve the simple problem well before adding complexity.**
+
+## Second portfolio project — Vehicle inspection demo + analysis dashboard
+
+### Strategic purpose
+
+Demonstrates the full pipeline end-to-end without confidentiality
+constraints. Vehicle bodywork is geometrically equivalent to aircraft
+skin (flat/slightly curved, rigid, similar defect types). The same
+tool, same pipeline, same accuracy targets — publicly demonstrable.
+
+This also serves as the argument for obtaining real aerospace data
+authorisation: instead of "trust me", the ask becomes "look at it
+working".
+
+### Part 1 — Vehicle model + dual-model DMT
+
+Train a second YOLOv8 nano model on a public car damage dataset
+(Roboflow Universe, CC BY 4.0). Target: ~2000–5000 images,
+classes dent/scratch/crack minimum.
+
+Repository structure after integration:
+  lib/
+    best_aerospace.onnx   (~12 MB, classes: crack/dent/paint-off/scratch)
+    best_vehicle.onnx     (~12 MB, classes: dent/scratch/crack/...)
+
+App changes:
+- state.modelMode: 'aerospace' | 'vehicle'
+- Mode selector in left panel (toggle or dropdown)
+- loadModelForMode() loads the correct .onnx lazily on first activation
+- Class label arrays are per-model, switched with modelMode
+- Inference pipeline is identical — only file path and labels change
+- Badge shows active mode so the inspector always knows which model runs
+- Both models excluded from exported JPEGs (exportMode guard unchanged)
+
+Tag after completion: v1.8-dual-model (or merged into a phase tag)
+
+### Part 2 — Corpus generation
+
+After vehicle model is integrated, generate 25–30 real inspection
+reports using the DMT with car damage photos (own photos, or photos
+from the public dataset). Fill the Word report form for each:
+damage type, dimensions, zone, inspector name, date. This produces
+a realistic corpus of .docx files for the dashboard.
+
+Photos can come from:
+- Personal photos of any car (parking lot, workshop)
+- Public dataset images (already downloaded at ~/datasets/)
+- No ArUco marker needed for the ONNX detection badge; marker
+  required only for mm-accurate measurement dimensions
+
+### Part 3 — Analysis dashboard (separate repository)
+
+Stack: Python + Streamlit. Deployed free on Streamlit Cloud.
+No Docker, no database, no FastAPI for this project.
+
+Input: folder of .docx reports generated by DMT phase 24.
+Extraction: python-docx reads the report tables (markers match
+the template: {damage_type}, {length}, {width}, {location}, etc.)
+
+Visualisations:
+- Damage type distribution (bar / pie)
+- Length vs width scatter plot by class
+- Inspection timeline if dates vary across reports
+- Filterable table of all records
+- Summary stats per inspector if names vary
+
+Repo name: dmt-damage-dashboard (or similar)
+README must explain: vehicle domain used for portfolio;
+same pipeline applies to aerospace data in production.
+
+### Portfolio pitch (both projects together)
+
+"I built an inspection tool that runs entirely in the browser —
+YOLOv8 detection, OpenCV measurement, automatic Word report,
+zero backend. To demonstrate it without confidentiality constraints
+I trained a second model on public vehicle damage data, which is
+geometrically equivalent to aircraft panels. On top of that I built
+a Python dashboard that reads the generated reports and surfaces
+damage patterns. Both are publicly accessible. The aerospace model
+is already integrated in parallel — the same tool switches domains
+with one click."
+
+### Status
+
+- [ ] Find and download car damage dataset from Roboflow Universe
+- [ ] Train best_vehicle.onnx (same WSL2/RTX 3050 Ti setup)
+- [ ] Add mode selector to app + lazy model loading
+- [ ] Generate 25–30 Word reports using car photos
+- [ ] Build Streamlit dashboard reading those reports
+- [ ] Deploy dashboard on Streamlit Cloud
+- [ ] Update README of DMT repo to mention dual-model capability
 
 ## Detailed catalogue (consolidated, May 2026)
 
@@ -976,15 +1197,30 @@ equivalent. This is noted explicitly only where the distinction matters.
 ### Block 4 — Applied AI and custom-trained model
 
 15. **Learn Python oriented to computer vision.**
-16. **Build a custom vehicle damage dataset.** 200–500 labelled
-    images. No confidentiality constraints. Classes: dent, scratch,
-    paint_damage, bumper_damage. Try open sources first (Roboflow
-    Universe, Kaggle). ArUco markers NOT required in training photos.
-17. **Train a small model with YOLOv8 or similar.** Export to ONNX.
+16. **Build a custom vehicle damage dataset.** 200–500 labelled images.
+    No confidentiality constraints. Classes: dent, scratch, paint_damage,
+    bumper_damage. Try open sources first (Roboflow Universe, Kaggle).
+    ArUco markers NOT required in training photos.
+    Annotation type required: instance segmentation (polygon masks), NOT
+    bounding boxes. In Roboflow, filter by "Instance Segmentation".
+    Bounding-box-only datasets cannot be used with yolov8n-seg without
+    re-annotation.
+17. **Train a model with YOLOv8n-seg (instance segmentation).** ✅ Current
+    model (best.onnx) is yolov8n detection — bounding boxes only. Next
+    training iteration must use yolov8n-seg to produce pixel-level instance
+    masks. Masks enable automatic contour extraction and real damage geometry
+    (length, width, area, orientation via cv.minAreaRect), which is required
+    for automatic dimension proposals. Export to ONNX.
 18. **Integrate the trained model into the web app via ONNX Runtime
-    Web.** In roadmap as phase 19.
+    Web.** ✅ Completed in phase 21 (detection model). Tag v1.5-onnx.
+    Next iteration will integrate a segmentation model output (masks).
 19. **Aerospace AI model for automatic classification (corporate
     decision).** Depends entirely on corporate decisions.
+    Architecture decision (locked): yolov8n-seg (instance segmentation).
+    Bounding-box models are insufficient for production aeronautical use —
+    real damage cotas require contour geometry, not surrounding rectangles.
+    Annotation effort is higher (polygon masks vs rectangles) but required
+    for the target accuracy level.
 
 ### Block 5 — Augmented reality and technical drawings
 
@@ -1004,11 +1240,36 @@ equivalent. This is noted explicitly only where the distinction matters.
     publicly (LinkedIn or technical blog). Return materialises at
     12–18 months. Cost: 1–2 hours/week.
 
-## How to start the next session (phase 21 — ONNX Runtime Web)
+## How to start the next session (Stereometry improved)
+
+Phases completed: 1–18, 21, 22, 23A, 24.
+Tags: v1.0-core through v1.8-onnx-canny.
+
+Confirmed roadmap order (decided June 2026):
+1. Phase 22 — ✅ COMPLETE. Tag v1.7-onnx-bbox.
+2. Phase 23A — ✅ COMPLETE. Tag v1.8-onnx-canny.
+3. Stereometry improved ← NEXT — diagnosis session first, then fix
+4. Vehicle model + dual-model app — Train YOLOv8 on a public car
+   damage dataset (Roboflow Universe, CC BY 4.0). Export to
+   best_vehicle.onnx. Add model mode selector to app (Aerospace /
+   Vehicle). Models loaded lazily — only when mode is activated.
+   state.modelMode controls which .onnx and class labels are active.
+   Inference pipeline is identical for both models.
+   Target dataset: search Roboflow Universe for "car damage detection",
+   ~2000-5000 images, classes including dent/scratch/crack.
+   After vehicle model is integrated: generate 25-30 real inspections
+   using car photos to produce Word report corpus for the dashboard.
+5. Photos in Word via ZIP direct manipulation (closes phase 24 debt)
+6. Portfolio dashboard (Python + Streamlit) — reads Word reports
+   generated by DMT, extracts structured data, visualises patterns.
+   Separate repo. See "Second portfolio project" section.
+7. Inspection session + PDF export (only when tool becomes official)
+
+Phase 23B (rivets/edges) blocked until real aerospace data authorised.
+Azure Dashboard deferred — Azure free tier expired, not cost-effective now.Implementar Phase 22: cajas ONNX y estimación automática de dimensiones
 
 When opening a new chat:
-
-1. Confirm that the latest app.js, index.html and this
+1. Confirm that the latest app.js, index.html, sw.js and this
    PROJECT_CONTEXT.md are present in project files.
 2. Read PROJECT_CONTEXT.md and app.js before doing anything else.
 3. When code inspection is needed, read specific fragments by line
@@ -1018,20 +1279,11 @@ When opening a new chat:
 5. Deliver changes as copy-pasteable fragments for VS Code, not as
    whole-file replacements. Explain each fragment before presenting it.
 
-Phase 21 covers ONNX Runtime Web — integrating the trained YOLOv8 model
-into the browser app for client-side damage detection:
-
-  Prerequisites: P1/P2 complete (trained .onnx file ready).
-  The model runs entirely in the browser via ONNX Runtime Web —
-  no backend, no API calls, no images leave the device.
-
-  Key decisions to make at the start of phase 21:
-  - ONNX Runtime Web loading: via CDN or bundled locally (prefer local
-    for offline PWA support).
-  - Input format: model expects 640×640 px normalised tensor.
-  - Output: bounding boxes + class scores → overlay on photo canvas.
-  - Integration point: after ArUco calibration, before manual measurement.
-
-  Active branch to open: feature/phase-21-onnx
-  Suggested commit message: `phase 21 complete: ONNX damage detection`
-  Tag after merge to main: v1.5-onnx
+Stereometry improved — next session:
+  Diagnosis first: load two photos of an object with known depth (e.g. a
+  book or box), run the stereo flow, compare result to real value, log
+  the error. Identify whether the dominant source is baseline estimation,
+  disparity search, or the depth formula itself. Fix based on findings.
+  Active branch: feature/stereometry-improved (fork from main after v1.8-onnx-canny)
+  Commit message: stereometry improved: [describe fix]
+  Tag after merge: v1.8-stereo-improved

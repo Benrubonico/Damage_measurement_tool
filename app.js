@@ -17,11 +17,15 @@
    detector and we cannot proceed with automatic calibration.
    ============================================================ */
 (function waitForOpenCV() {
+  let called = false;
+
   function isReady() {
     return typeof cv !== 'undefined' && cv && typeof cv.Mat === 'function';
   }
 
   function onReady() {
+    if (called) return;
+    called = true;
     document.getElementById('opencv-loading').hidden = true;
     document.getElementById('btn-pick-camera').disabled = false;
     document.getElementById('btn-pick-gallery').disabled = false;
@@ -442,8 +446,13 @@ const state = {
   pendingRectProposal: null, // result of suggestDamageEndpointsInRect(), held while modal is open
   lensModel: null,          // EXIF Model string of the photo's camera, or null (phase 17)
 
-  /* ---- ONNX detections (phase 21) ---- */
+  /* ---- ONNX detections (phase 21 / 22) ---- */
   onnxDetections: [],       // array of {label, confidence, x, y, w, h} in image-space px
+  showOnnxBoxes: false,     // true = draw bounding boxes on canvas (phase 22); false = badge only
+  onnxRectProposed: false,  // true while an ONNX bbox is pre-filling the Canny search region (phase 23A)
+
+  /* ---- Word report (phase 24) ---- */
+  lastStereoDepthMm: null,  // last stereo depth result, for report form pre-fill
 };
 
 const welcome = document.getElementById('welcome');
@@ -463,7 +472,8 @@ const btnNewProject    = document.getElementById('btn-new-project');
 const btnConfirmPoint  = document.getElementById('btn-confirm-point');
 const btnConfirmMeas   = document.getElementById('btn-confirm-meas');
 const btnCancelMeas    = document.getElementById('btn-cancel-meas');
-const btnAutoDetect    = document.getElementById('btn-auto-detect');
+const btnAutoDetect       = document.getElementById('btn-auto-detect');
+const btnConfirmOnnxRect  = document.getElementById('btn-confirm-onnx-rect');
 const btnAddDim        = document.getElementById('btn-add-dim');
 const fabExitClean     = document.getElementById('fab-exit-clean');
 
@@ -482,6 +492,8 @@ const leftPanelClose   = document.getElementById('left-panel-close');
 const btnCleanPanel    = document.getElementById('btn-clean-panel');
 const btnSavePanel     = document.getElementById('btn-save-panel');
 const btnSharePanel    = document.getElementById('btn-share-panel');
+const btnReportPanel   = document.getElementById('btn-report-panel');
+const btnOnnxBoxes     = document.getElementById('btn-onnx-boxes');
 
 
 /* ============================================================
@@ -721,6 +733,8 @@ function loadPhotoFromBlob(blob) {
       state.currentStroke = null;
       state.heatmapCanvas = null;
       state.onnxDetections = [];   // clear previous detections on new photo
+      state.showOnnxBoxes  = false; // reset boxes toggle on new photo (phase 22)
+      state.onnxRectProposed = false; // reset ONNX proposal on new photo (phase 23A)
       state.showSafeZone = true;   // shown until first point is placed
       resetZoom();
       /* Phase 17: apply lens undistortion if a profile exists for
@@ -810,6 +824,10 @@ function tryAutoCalibration() {
   /* No known marker detected — fall back to the manual flow,
      identical to the pre-ArUco behaviour of the app. */
   console.log('No ArUco marker detected, falling back to manual calibration.');
+  /* Phase 21: run ONNX detection even without a marker — the
+     inspector can still benefit from knowing the damage type
+     before deciding whether to calibrate manually. */
+  if (ONNX_ENABLED) runOnnxDetection();
   setPhase('calib-1');
   modalOnboard.classList.add('show');
 }
@@ -945,13 +963,33 @@ async function initOnnxModel() {
         else if (attempts > 100) { clearInterval(poll); reject(new Error('ort.min.js did not load after 10s')); }
       }, 100);
     });
-    /* Tell ORT where to find the .wasm files — they live in lib/
-       alongside ort.min.js so the relative path is the same. */
+    /* Tell ORT where to find the .wasm files — needed for the WASM
+       backend and for the WASM fallback even when WebGPU is primary. */
     ort.env.wasm.wasmPaths = './lib/';
-    onnxSession = await ort.InferenceSession.create(ONNX_MODEL_PATH, {
-      executionProviders: ['wasm']
-    });
-    console.log('Phase 21: ONNX model loaded OK. Input:',
+    /* Prefer WebGPU (GPU-accelerated, 3-10x faster) when the browser
+       supports it. We check navigator.gpu first to avoid error noise on
+       browsers without WebGPU (Firefox, older Safari). If WebGPU session
+       creation fails for any reason (driver issue, context lost, ORT EP
+       not initialised), we null the session and retry with WASM so the
+       outer catch only fires when WASM itself fails. */
+    let _onnxBackend = 'wasm';
+    if (typeof navigator !== 'undefined' && navigator.gpu) {
+      try {
+        onnxSession = await ort.InferenceSession.create(ONNX_MODEL_PATH, {
+          executionProviders: ['webgpu']
+        });
+        _onnxBackend = 'webgpu';
+      } catch (_gpuErr) {
+        console.info('ONNX WebGPU EP unavailable, falling back to WASM:', _gpuErr.message);
+        onnxSession = null;
+      }
+    }
+    if (!onnxSession) {
+      onnxSession = await ort.InferenceSession.create(ONNX_MODEL_PATH, {
+        executionProviders: ['wasm']
+      });
+    }
+    console.log(`Phase 21: ONNX model loaded OK (${_onnxBackend}). Input:`,
       Object.keys(onnxSession.inputNames),
       'Output:', Object.keys(onnxSession.outputNames));
   } catch (err) {
@@ -1087,6 +1125,7 @@ async function runOnnxDetection() {
 
     state.onnxDetections = kept;
     console.log(`Phase 21: ${kept.length} detection(s) after NMS.`, kept);
+    updateButtons();   // phase 22: refresh button visibility once detections arrive
     redraw();
 
   } catch (err) {
@@ -1378,39 +1417,120 @@ function redraw() {
   /* ONNX DETECTIONS (phase 21)
      ----------------------------------------------------------
      Draw bounding boxes for all detections above the confidence
-     threshold. Each box is a semi-transparent filled rectangle
-     with a coloured border and a label showing class + confidence.
+     threshold. Label appears inside the box when there is not
+     enough space above it (y too close to top edge).
      Never drawn in exportMode (same rule as the heatmap).
      ---------------------------------------------------------- */
-  if (!exportMode && state.onnxDetections && state.onnxDetections.length > 0) {
-    state.onnxDetections.forEach(det => {
-      const color = ONNX_CLASS_COLORS[ONNX_CLASS_NAMES.indexOf(det.label)] || '#ffffff';
+  if (!exportMode && state.onnxDetections !== null && state.onnxDetections !== undefined) {
+    /* No detections: show a brief notice in the top-left corner
+       so the inspector knows the model ran but found nothing. */
+    if (state.onnxDetections.length === 0) {
+      const noDetFontSz = fontSize * 0.8;
+      const noDetPad    = 6 * k;
+      const noDetText   = 'No damage type detected';
       ctx.save();
-      /* Semi-transparent fill */
-      ctx.fillStyle = color.replace(')', ', 0.10)').replace('rgb(', 'rgba(') + (color.startsWith('#') ? '1a' : '');
-      ctx.globalAlpha = 0.15;
-      ctx.fillRect(det.x, det.y, det.w, det.h);
-      ctx.globalAlpha = 1.0;
-      /* Border */
-      ctx.strokeStyle = color;
-      ctx.lineWidth   = stroke * 1.5;
-      ctx.strokeRect(det.x, det.y, det.w, det.h);
-      /* Label */
-      const label = `${det.label} ${Math.round(det.confidence * 100)}%`;
-      ctx.font = `bold ${fontSize * 0.9}px sans-serif`;
-      const tw  = ctx.measureText(label).width;
-      const pad = 6 * k;
-      const lh  = fontSize * 0.9 + pad * 2;
-      ctx.fillStyle = 'rgba(0,0,0,0.75)';
-      ctx.globalAlpha = 1.0;
-      ctx.fillRect(det.x, det.y - lh, tw + pad * 2, lh);
-      ctx.fillStyle   = color;
+      ctx.font         = `${noDetFontSz}px sans-serif`;
+      const noDetW     = ctx.measureText(noDetText).width + noDetPad * 2;
+      const noDetH     = noDetFontSz + noDetPad * 2;
+      const noDetX     = noDetPad * 2;
+      const noDetY     = canvas.height - noDetH - noDetPad * 2;
+      ctx.fillStyle    = 'rgba(0,0,0,0.60)';
+      ctx.fillRect(noDetX, noDetY, noDetW, noDetH);
+      ctx.fillStyle    = '#aaaaaa';
       ctx.textBaseline = 'middle';
       ctx.textAlign    = 'left';
-      ctx.fillText(label, det.x + pad, det.y - lh / 2);
+      ctx.fillText(noDetText, noDetX + noDetPad, noDetY + noDetH / 2);
       ctx.textBaseline = 'alphabetic';
       ctx.restore();
+    }
+  }
+
+  /* ONNX BOUNDING BOXES (phase 22)
+     ----------------------------------------------------------
+     Drawn only when the inspector has toggled them on and only
+     in interactive mode — never on exported JPEGs.
+     Each box is coloured by damage class and carries a label
+     with class name, confidence, and approximate bbox size in
+     mm (bbox px × mmPerPixel). Prefixed with ~ to distinguish
+     from precision measurements. Boxes are drawn before the
+     text badge so the badge always renders on top.
+     ---------------------------------------------------------- */
+  if (!exportMode && state.showOnnxBoxes &&
+      state.onnxDetections && state.onnxDetections.length > 0) {
+    state.onnxDetections.forEach(d => {
+      const color = ONNX_CLASS_COLORS[ONNX_CLASS_NAMES.indexOf(d.label)] || '#ffffff';
+      const cap   = d.label.charAt(0).toUpperCase() + d.label.slice(1);
+      const pct   = Math.round(d.confidence * 100);
+
+      /* Bounding box rectangle */
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.lineWidth   = stroke * 1.5;
+      ctx.strokeRect(d.x, d.y, d.w, d.h);
+      ctx.restore();
+
+      /* Label: include mm size only when a calibration scale exists */
+      const labelText = state.mmPerPixel
+        ? `${cap} ${pct}% — ~${Math.round(d.w * state.mmPerPixel)}×${Math.round(d.h * state.mmPerPixel)} mm`
+        : `${cap} ${pct}%`;
+
+      /* Centre the label just above the box top edge.
+         If there is not enough room above, place it inside instead. */
+      const lbFontSz  = fontSize * 0.85;
+      const lbHalfH   = (lbFontSz + 12 * k) / 2;
+      const lbCenterX = d.x + d.w / 2;
+      const lbCenterY = (d.y >= lbHalfH * 2 + 4 * k)
+        ? d.y - lbHalfH - 2 * k     // above the box
+        : d.y + lbHalfH + 2 * k;    // inside top of box
+      drawLabelAtPoint({ x: lbCenterX, y: lbCenterY }, labelText, color, lbFontSz, k);
     });
+  }
+
+  if (!exportMode && state.onnxDetections && state.onnxDetections.length > 0) {
+    /* Text summary badge — always shown regardless of box toggle,
+       so the inspector always has the damage type at a glance. */
+    const sumFontSz  = fontSize * 0.85;
+    const sumPad     = 7 * k;
+    const sumSpacing = sumFontSz + sumPad;
+
+    const sumLines = state.onnxDetections.map(d => {
+      const cap = d.label.charAt(0).toUpperCase() + d.label.slice(1);
+      return `Damage type detected: ${cap} ${Math.round(d.confidence * 100)}%`;
+    });
+
+    ctx.save();
+    ctx.font = `bold ${sumFontSz}px sans-serif`;
+    const sumMaxW = Math.max(...sumLines.map(l => ctx.measureText(l).width));
+    const dotSpace = sumFontSz + sumPad * 0.5;
+    const sumW = sumMaxW + sumPad * 2 + dotSpace;
+    const sumH = sumPad + sumLines.length * sumSpacing + sumPad;
+    const sumX = canvas.width  - sumW - sumPad * 2;
+    const sumY = canvas.height - sumH - sumPad * 2;
+
+    ctx.fillStyle = 'rgba(0,0,0,0.75)';
+    ctx.fillRect(sumX, sumY, sumW, sumH);
+
+    sumLines.forEach((line, idx) => {
+      const det   = state.onnxDetections[idx];
+      const color = ONNX_CLASS_COLORS[ONNX_CLASS_NAMES.indexOf(det.label)] || '#ffffff';
+      const rowY  = sumY + sumPad + idx * sumSpacing + sumSpacing / 2;
+
+      /* Colour dot */
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(sumX + sumPad + sumFontSz * 0.4, rowY, sumFontSz * 0.4, 0, Math.PI * 2);
+      ctx.fill();
+
+      /* Text */
+      ctx.fillStyle    = '#ffffff';
+      ctx.textBaseline = 'middle';
+      ctx.textAlign    = 'left';
+      ctx.fillText(line, sumX + sumPad + dotSpace, rowY);
+    });
+
+    ctx.textBaseline = 'alphabetic';
+    ctx.textAlign    = 'left';
+    ctx.restore();
   }
 }
 
@@ -1858,6 +1978,12 @@ function onTouchStart(evt) {
     
     /* Auto-detect: start rectangle drag or prepare for tap. */
     if (state.phase === 'detect-tap') {
+      // Phase 23A: if the inspector starts drawing their own rect,
+      // dismiss the ONNX proposal immediately.
+      if (state.onnxRectProposed) {
+        state.onnxRectProposed = false;
+        updateButtons();
+      }
       state.rectStart = imgPos;
       state.rectEnd   = imgPos;
       return;
@@ -2056,6 +2182,12 @@ function onMouseDown(evt) {
 
   /* Auto-detect rectangle: start dragging. */
   if (state.phase === 'detect-tap') {
+    // Phase 23A: if the inspector starts drawing their own rect,
+    // dismiss the ONNX proposal immediately.
+    if (state.onnxRectProposed) {
+      state.onnxRectProposed = false;
+      updateButtons();
+    }
     state.rectStart = imgPos;
     state.rectEnd   = imgPos;
     return;
@@ -2127,7 +2259,6 @@ function onMouseMove(evt) {
 
   /* Text stamp drag */
   if (state.draggingText) {
-    const imgPos = getImagePoint(evt.clientX, evt.clientY);
     state.draggingText.x = state.dragTextOrigin.x + (imgPos.x - state.dragTextStartImgPos.x);
     state.draggingText.y = state.dragTextOrigin.y + (imgPos.y - state.dragTextStartImgPos.y);
     redraw();
@@ -2194,7 +2325,6 @@ function onMouseUp(evt) {
     state.dragStartImgPos = null;
     if (moved < TAP_THRESHOLD_PX) {
       openDimEditor(dim);
-      return;
     }
     return;
   }
@@ -2419,7 +2549,6 @@ function confirmCalibration() {
       const px = Math.hypot(d.b.x - d.a.x, d.b.y - d.a.y);
       d.mm = px * newMmPerPixel;
     });
-    renderPanelList();
   }
 
   state.mmPerPixel = newMmPerPixel;
@@ -2433,6 +2562,10 @@ function confirmCalibration() {
     document.getElementById('scale-set-text').textContent =
       `Scale: ${state.mmPerPixel.toFixed(3)} mm/pixel.`;
     modalScaleSet.classList.add('show');
+    /* Phase 21: run ONNX detection after manual calibration too.
+       The inspector may not have a marker but still wants to know
+       what type of damage is in the photo. */
+    if (ONNX_ENABLED) runOnnxDetection();
   }
 }
 
@@ -2482,6 +2615,7 @@ document.getElementById('new-confirm').addEventListener('click', () => {
   state.pendingB = null;
   state.dimCounter = 0;
   state.editingReference = false;
+  state.onnxRectProposed = false;
   resetZoom();
   setPhase('init');
 });
@@ -2619,11 +2753,11 @@ function setPhase(newPhase) {
 function updateButtons() {
   /* Toolbar buttons */
   [btnNewProject, btnConfirmPoint, btnConfirmMeas,
-   btnCancelMeas, btnAutoDetect, btnAddDim]
+   btnCancelMeas, btnAutoDetect, btnAddDim, btnConfirmOnnxRect]
     .forEach(b => b.style.display = 'none');
 
   /* Left-panel secondary buttons */
-  [btnCleanPanel, btnSavePanel, btnSharePanel]
+  [btnCleanPanel, btnSavePanel, btnSharePanel, btnReportPanel, btnOnnxBoxes]
     .forEach(b => b.style.display = 'none');
 
   /* Floating view-original button */
@@ -2635,7 +2769,8 @@ function updateButtons() {
 
   if (state.phase === 'init') return;
 
-  btnNewProject.style.display = 'block';
+  btnNewProject.style.display  = 'block';
+  btnReportPanel.style.display = 'block';
 
   if (state.phase === 'calib-1-set' || state.phase === 'calib-2-set') {
     btnConfirmPoint.style.display = 'block';
@@ -2646,11 +2781,17 @@ function updateButtons() {
     btnCleanPanel.style.display      = 'block';
     btnSavePanel.style.display       = 'block';
     btnSharePanel.style.display      = 'block';
+    btnReportPanel.style.display     = 'block';
+    /* Phase 22: show boxes toggle only when the model found detections */
+    btnOnnxBoxes.style.display  = (state.onnxDetections && state.onnxDetections.length > 0) ? 'block' : 'none';
+    btnOnnxBoxes.textContent    = state.showOnnxBoxes ? '🔳 Hide damage boxes' : '🔲 Show damage boxes';
     if (state.originalPhoto) fabViewOriginal.style.display = 'block';
     fabHeatmap.style.display = 'block';
   }
   else if (state.phase === 'detect-tap') {
     btnCancelMeas.style.display = 'block';
+    // Phase 23A: show confirm button only while the ONNX proposal is still active
+    if (state.onnxRectProposed) btnConfirmOnnxRect.style.display = 'block';
   }
   else if (state.phase === 'measure-1-empty') {
     btnCancelMeas.style.display = 'block';
@@ -2701,7 +2842,9 @@ function updateHint() {
     else if (visible === total) hint.textContent = `${total} dimension${total > 1 ? 's' : ''} placed.`;
     else hint.textContent = `${visible}/${total} visible.`;
   } else if (state.phase === 'detect-tap') {
-    hint.textContent = '🎯 Draw a rectangle over the object to measure — tap and drag without lifting.';
+    hint.textContent = state.onnxRectProposed
+      ? '🤖 ONNX region detected — tap ✓ Use ONNX region to accept, or drag to select your own area.'
+      : '🎯 Draw a rectangle over the object to measure — tap and drag without lifting.';
   } else if (state.phase === 'measure-1-empty') {
     hint.textContent = 'Tap the first endpoint of the dimension.';
   } else if (state.phase === 'measure-1') {
@@ -2908,8 +3051,31 @@ document.getElementById('rect-measure-cancel').addEventListener('click', closeRe
   
 
    btnAutoDetect.addEventListener('click', () => {
-  state.pendingA = null; state.pendingB = null;
+  state.pendingA = null;
+  state.pendingB = null;
+  // Phase 23A: if ONNX detections exist, pre-fill the Canny search region
+  // with the highest-confidence detection's bounding box. The blue dashed
+  // rectangle appears immediately; the inspector can confirm or override.
+  if (state.onnxDetections && state.onnxDetections.length > 0) {
+    const best = state.onnxDetections.reduce((a, b) =>
+      b.confidence > a.confidence ? b : a
+    );
+    state.rectStart        = { x: best.x,          y: best.y };
+    state.rectEnd          = { x: best.x + best.w, y: best.y + best.h };
+    state.onnxRectProposed = true;
+  } else {
+    state.rectStart        = null;
+    state.rectEnd          = null;
+    state.onnxRectProposed = false;
+  }
   setPhase('detect-tap');
+});
+
+btnConfirmOnnxRect.addEventListener('click', () => {
+  // Confirm the ONNX-proposed region: run Canny on the pre-filled
+  // rectStart/rectEnd exactly as if the inspector had drawn it manually.
+  state.onnxRectProposed = false;
+  commitRectDimensions();
 });
 
 btnAddDim.addEventListener('click', () => {
@@ -3103,6 +3269,13 @@ btnSharePanel.addEventListener('click', () => {
       }
     }, 'image/jpeg', 0.92);
   });
+});
+
+/* Phase 22: toggle ONNX bounding boxes on/off */
+btnOnnxBoxes.addEventListener('click', () => {
+  state.showOnnxBoxes = !state.showOnnxBoxes;
+  btnOnnxBoxes.textContent = state.showOnnxBoxes ? '🔳 Hide damage boxes' : '🔲 Show damage boxes';
+  redraw();
 });
 
 /* ============================================================
@@ -3585,8 +3758,6 @@ function wireRoiCanvas() {
   /* Re-draw the photo onto the cloned canvas (no rectangle yet) */
   const img = stereoPhotos[0].img;
   const ctx2 = fresh.getContext('2d');
-  /* Carry over dimensions from the original canvas that was replaced */
-  const orig = document.getElementById('stereo-roi-canvas');
   fresh.width  = fresh.width  || img.naturalWidth  || img.width;
   fresh.height = fresh.height || img.naturalHeight || img.height;
   ctx2.drawImage(img, 0, 0, fresh.width, fresh.height);
@@ -3828,6 +3999,7 @@ function showStereoResult(depthMm) {
     valueEl.style.color  = '#e74c3c';
     detailEl.textContent = 'Template match score too low. Try a region with more visible texture, or check that both photos show the same object.';
   } else {
+    state.lastStereoDepthMm = depthMm;   // phase 24: pre-fill report depth field
     const sign    = depthMm < 0 ? '−' : '+';
     const absVal  = Math.abs(depthMm).toFixed(1);
     const label   = depthMm < 0 ? 'inward (depth)' : 'outward (height)';
@@ -4711,10 +4883,8 @@ function rectifyImageWithMultipleMarkers(img, markers) {
        that was baked into the raw pixel offsets. */
     const offsetXpx = centres[idx].x - primaryDetectedCx;
     const offsetYpx = centres[idx].y - primaryDetectedCy;
-    const offsetXmm = offsetXpx * mmPerPx;
-    const offsetYmm = offsetYpx * mmPerPx;
-    const idealCx = primaryIdealCx + offsetXmm / mmPerPx;
-    const idealCy = primaryIdealCy + offsetYmm / mmPerPx;
+    const idealCx   = primaryIdealCx + offsetXpx;
+    const idealCy   = primaryIdealCy + offsetYpx;
 
     /* Ideal corners as a perfect square (TL, TR, BR, BL). */
     const ideal = [
@@ -4891,6 +5061,385 @@ window.testDetection = function () {
 };
 
 
+/* ============================================================
+   WORD REPORT WIZARD — PHASE 24
+   ============================================================
+   Three-step overlay (same visual pattern as the stereo module):
+     Step 1 — Overview photo: fresh pick, ArUco detection informational
+     Step 2 — Detail photo: defaults to current canvas, or fresh pick
+     Step 3 — Metadata form → renders .docx and triggers download
+   Libraries required (local, no network at runtime):
+     lib/pizzip.min.js              → window.PizZip
+     lib/docxtemplater.min.js       → window.docxtemplater
+     lib/docxtemplater-image.min.js → window.ImageModule
+       (verify the exact global name after downloading the file)
+   Template: templates/inspection_report.docx
+     Text markers: {tag}   Image markers: {%tag}
+   ============================================================ */
+
+let reportPhotoOverview = null;  // {dataUrl, hasMarker, width, height} or null
+let reportPhotoDetail   = null;  // {dataUrl, hasMarker, isCanvas, width, height} or null
+
+/* Defined at module level so removeEventListener in openReportWizard
+   always receives the same stable reference. */
+function updateDamageTypeUI() {
+  const val = document.getElementById('report-damage-type').value;
+  document.getElementById('report-direction-wrap').style.display =
+    (val === 'Dent') ? 'block' : 'none';
+  document.getElementById('report-other-wrap').style.display =
+    (val === 'Other') ? 'block' : 'none';
+}
+
+/* ---------- entry point ---------- */
+document.getElementById('btn-report-panel').addEventListener('click', () => {
+  closeLeftPanel();
+  openReportWizard();
+});
+document.getElementById('report-close').addEventListener('click', closeReportWizard);
+
+function openReportWizard() {
+  reportPhotoOverview = null;
+  reportPhotoDetail   = null;
+
+  /* Reset step 1 UI */
+  document.getElementById('report-overview-status').textContent    = '';
+  document.getElementById('report-overview-status').className      = 'slot-status';
+  document.getElementById('report-overview-preview').style.display = 'none';
+  document.getElementById('btn-report-step1-next').disabled        = true;
+  document.getElementById('btn-report-load-overview').textContent  = '📷 Load overview photo';
+
+  /* Step 2: pre-populate with the current canvas if a photo is loaded */
+  const canvasOpt = document.getElementById('report-detail-canvas-option');
+  const sepEl     = document.getElementById('report-detail-sep');
+  if (state.photo) {
+    /* Export canvas synchronously (exportImage is synchronous) */
+    let dataUrl = '';
+    exportImage(() => { dataUrl = canvas.toDataURL('image/jpeg', 0.92); });
+    document.getElementById('report-detail-canvas-thumb').src = dataUrl;
+    reportPhotoDetail = {
+      dataUrl, hasMarker: true, isCanvas: true,
+      width: canvas.width, height: canvas.height
+    };
+    canvasOpt.style.display = 'block';
+    sepEl.style.display     = 'block';
+    document.getElementById('btn-report-step2-next').disabled   = false;
+    document.getElementById('report-detail-status').textContent = '';
+  } else {
+    canvasOpt.style.display = 'none';
+    sepEl.style.display     = 'none';
+    document.getElementById('btn-report-step2-next').disabled   = true;
+    document.getElementById('report-detail-status').textContent = '';
+  }
+
+  /* Reset alternative-photo thumbnail */
+  document.getElementById('report-detail-alt-preview').style.display = 'none';
+
+  /* Step 3: pre-fill measurements from current session */
+  prefillReportForm();
+
+  /* Wire up damage type → direction / other field visibility.
+     updateDamageTypeUI is defined at module level so removeEventListener
+     receives the same reference every time and actually removes the old handler. */
+  const dmgTypeSel = document.getElementById('report-damage-type');
+  dmgTypeSel.removeEventListener('change', updateDamageTypeUI);
+  dmgTypeSel.addEventListener('change', updateDamageTypeUI);
+  updateDamageTypeUI();   // apply on open
+
+  showReportStep(1);
+  document.getElementById('report-overlay').style.display = 'flex';
+}
+
+function closeReportWizard() {
+  document.getElementById('report-overlay').style.display = 'none';
+  reportPhotoOverview = null;
+  reportPhotoDetail   = null;
+}
+
+/* ---------- step navigation ---------- */
+function showReportStep(n) {
+  [1, 2, 3].forEach(i => {
+    document.getElementById(`report-step-${i}`).style.display =
+      (i === n) ? 'block' : 'none';
+  });
+  document.getElementById('report-step-label').textContent =
+    `📄 Inspection report — Step ${n}/3`;
+}
+
+document.getElementById('btn-report-step1-next').addEventListener('click',
+  () => showReportStep(2));
+document.getElementById('btn-report-step2-back').addEventListener('click',
+  () => showReportStep(1));
+document.getElementById('btn-report-step2-next').addEventListener('click',
+  () => showReportStep(3));
+document.getElementById('btn-report-step3-back').addEventListener('click',
+  () => showReportStep(2));
+
+/* "Use canvas" button: re-selects the canvas export as the active
+   detail photo, e.g. after the inspector loaded an alternative. */
+document.getElementById('btn-report-use-canvas').addEventListener('click', () => {
+  if (!state.photo) return;
+  let dataUrl = '';
+  exportImage(() => { dataUrl = canvas.toDataURL('image/jpeg', 0.92); });
+  document.getElementById('report-detail-canvas-thumb').src = dataUrl;
+  reportPhotoDetail = {
+    dataUrl, hasMarker: true, isCanvas: true,
+    width: canvas.width, height: canvas.height
+  };
+  document.getElementById('report-detail-alt-preview').style.display  = 'none';
+  document.getElementById('report-detail-status').textContent         = '';
+  document.getElementById('btn-report-step2-next').disabled           = false;
+});
+
+/* ---------- photo loading ---------- */
+function triggerReportFilePick(role) {
+  const input = document.createElement('input');
+  input.type          = 'file';
+  input.accept        = 'image/*';
+  input.style.display = 'none';
+  document.body.appendChild(input);
+
+  input.addEventListener('change', async () => {
+    const file = input.files[0];
+    document.body.removeChild(input);
+    if (!file) return;
+
+    const statusEl = document.getElementById(
+      role === 'overview' ? 'report-overview-status' : 'report-detail-status'
+    );
+    statusEl.textContent = 'Loading…';
+    statusEl.className   = 'slot-status';
+
+    /* HEIC conversion — same pattern as the stereo module */
+    const isHeic = /image\/hei[cf]/i.test(file.type || '') ||
+                   /\.(heic|heif)$/i.test(file.name || '');
+    let blob = file;
+    if (isHeic) {
+      try {
+        const converted = await window.heic2any({ blob: file, toType: 'image/jpeg', quality: 0.92 });
+        blob = Array.isArray(converted) ? converted[0] : converted;
+      } catch (e) {
+        statusEl.textContent = '✗ HEIC conversion failed. Try a JPEG.';
+        statusEl.className   = 'slot-status error';
+        return;
+      }
+    }
+
+    /* Load into Image element — loadImageFromBlob is defined in the stereo module */
+    let img;
+    try {
+      img = await loadImageFromBlob(blob);
+    } catch (e) {
+      statusEl.textContent = '✗ Could not read image file.';
+      statusEl.className   = 'slot-status error';
+      return;
+    }
+
+    /* Informational ArUco check — does not block progress */
+    const markerResult = detectArucoMarker(img);
+    const hasMarker    = !!(markerResult && markerResult.best);
+
+    /* Rasterise to an offscreen canvas to get a clean JPEG dataUrl
+       and the image dimensions we need for the Word layout. */
+    const off    = document.createElement('canvas');
+    off.width    = img.naturalWidth  || img.width;
+    off.height   = img.naturalHeight || img.height;
+    off.getContext('2d').drawImage(img, 0, 0);
+    const dataUrl = off.toDataURL('image/jpeg', 0.90);
+
+    const photoData = {
+      dataUrl, hasMarker, isCanvas: false,
+      width: off.width, height: off.height
+    };
+
+    if (role === 'overview') {
+      reportPhotoOverview = photoData;
+      document.getElementById('report-overview-thumb').src             = dataUrl;
+      document.getElementById('report-overview-preview').style.display = 'block';
+      statusEl.textContent = hasMarker
+        ? `✓ Marker ID ${markerResult.best.id} detected`
+        : 'ℹ No marker detected — you can still continue';
+      statusEl.className = hasMarker ? 'slot-status ok' : 'slot-status';
+      document.getElementById('btn-report-step1-next').disabled           = false;
+      document.getElementById('btn-report-load-overview').textContent     = '📷 Change overview photo';
+    } else {
+      reportPhotoDetail = photoData;
+      document.getElementById('report-detail-alt-thumb').src              = dataUrl;
+      document.getElementById('report-detail-alt-preview').style.display  = 'block';
+      statusEl.textContent = hasMarker
+        ? `✓ Marker ID ${markerResult.best.id} detected`
+        : 'ℹ No marker detected — you can still continue';
+      statusEl.className = hasMarker ? 'slot-status ok' : 'slot-status';
+      document.getElementById('btn-report-step2-next').disabled = false;
+    }
+  });
+
+  input.click();
+}
+
+document.getElementById('btn-report-load-overview').addEventListener('click',
+  () => triggerReportFilePick('overview'));
+document.getElementById('btn-report-load-detail').addEventListener('click',
+  () => triggerReportFilePick('detail'));
+
+/* ---------- form pre-fill ---------- */
+function prefillReportForm() {
+  /* Damage type: top ONNX detection (labels are lowercase, options Capitalised) */
+  if (state.onnxDetections && state.onnxDetections.length > 0) {
+    const label = state.onnxDetections[0].label;
+    const cap   = label.charAt(0).toUpperCase() + label.slice(1);
+    const sel   = document.getElementById('report-damage-type');
+    const opt   = Array.from(sel.options).find(o => o.value === cap);
+    if (opt) sel.value = cap;
+  }
+
+  /* Dimensions: look for measurements named "Length" / "Width" */
+  document.getElementById('report-length').value = getDimValueByName('length');
+  document.getElementById('report-width').value  = getDimValueByName('width');
+
+  /* Reset direction/other visibility after pre-fill */
+  const sel = document.getElementById('report-damage-type');
+  if (sel) {
+    document.getElementById('report-direction-wrap').style.display =
+      sel.value === 'Dent' ? 'block' : 'none';
+    document.getElementById('report-other-wrap').style.display = 'none';
+  }
+
+  /* Depth: last stereo result if available */
+  document.getElementById('report-depth').value =
+    state.lastStereoDepthMm !== null ? state.lastStereoDepthMm.toFixed(2) : '';
+}
+
+/* Returns the pre-computed mm value (1 dp, as string) of the first
+   dimension whose name matches the argument (case-insensitive).
+   Uses dim.mm which is set at dimension creation time. */
+function getDimValueByName(name) {
+  const lc  = name.toLowerCase();
+  const dim = state.dimensions.find(d => d.name.toLowerCase() === lc);
+  return dim ? dim.mm.toFixed(1) : '';
+}
+
+/* ---------- .docx generation ---------- */
+document.getElementById('btn-report-generate').addEventListener('click', generateWordReport);
+
+async function generateWordReport() {
+  const btn = document.getElementById('btn-report-generate');
+  btn.disabled    = true;
+  btn.textContent = 'Generating…';
+
+  try {
+    /* 1. Collect form values */
+    const msn       = document.getElementById('report-msn').value.trim()        || '—';
+    const ref       = document.getElementById('report-ref').value.trim()        || '—';
+    const location  = document.getElementById('report-location').value.trim()   || '—';
+    const inspector = document.getElementById('report-inspector').value.trim()  || '—';
+    const dmgTypeRaw = document.getElementById('report-damage-type').value;
+    const dmgOther   = document.getElementById('report-damage-other').value.trim();
+    const dmgType    = (dmgTypeRaw === 'Other' && dmgOther) ? dmgOther : dmgTypeRaw;
+    const dmgDir     = (dmgTypeRaw === 'Dent')
+      ? document.getElementById('report-damage-direction').value
+      : '';
+    const length    = document.getElementById('report-length').value            || '—';
+    const width     = document.getElementById('report-width').value             || '—';
+    const depth     = document.getElementById('report-depth').value             || '—';
+    const frameFrom      = document.getElementById('report-frame-from').value.trim()    || '—';
+    const frameTo        = document.getElementById('report-frame-to').value.trim()      || '—';
+    const stringerFrom   = document.getElementById('report-stringer-from').value.trim() || '—';
+    const stringerTo     = document.getElementById('report-stringer-to').value.trim()   || '—';
+    const posFrame    = document.getElementById('report-pos-frame').value    || '—';
+    const posStringer = document.getElementById('report-pos-stringer').value || '—';
+
+    /* 2. Build data object (text markers + image dataUrls) */
+    const dateStr   = new Date().toLocaleDateString('en-GB');   // DD/MM/YYYY
+    const scaleInfo = state.mmPerPixel
+      ? `ArUco ID ${state.calibMarkerId ?? 'manual'} — ${state.mmPerPixel.toFixed(3)} mm/px`
+      : 'Manual calibration';
+
+    const data = {
+      msn, ref, location, inspector,
+      damage_type:      dmgType,
+      damage_direction: dmgDir,
+      damage_label:     dmgDir ? `${dmgType.toLowerCase()} (${dmgDir})` : dmgType.toLowerCase(),
+      length, width, depth,
+      frame_from: frameFrom, frame_to: frameTo,
+      stringer_from: stringerFrom, stringer_to: stringerTo,
+      pos_distance_frame: posFrame, pos_distance_stringer: posStringer,
+      date: dateStr, scale_info: scaleInfo, tool_version: 'DMT v1.6',
+      /* Images disabled until compatible module found — inspector adds manually */
+    };
+
+    /* 3. Load template */
+    const response = await fetch('./templates/inspection_report.docx');
+    if (!response.ok) throw new Error(
+      `Template not found (HTTP ${response.status}). ` +
+      `Make sure templates/inspection_report.docx exists in the repo root.`
+    );
+    const arrayBuffer = await response.arrayBuffer();
+
+    /* 4. Initialise docxtemplater with image module.
+       IMPORTANT: verify that window.ImageModule is the correct global
+       name exposed by lib/docxtemplater-image.min.js after you download
+       it. If the file exposes a different name, update the line below. */
+    if (!window.PizZip || !window.docxtemplater) {
+      throw new Error(
+        'Report libraries not loaded. Ensure pizzip.min.js and ' +
+        'docxtemplater.min.js are present in lib/.'
+      );
+    }
+
+    /* Image module disabled: docxtemplater-image-module-free is incompatible
+       with modern browsers (namespaceURI is read-only). Photos are embedded
+       as text placeholders for now — inspector adds them manually in Word.
+       Re-enable once a compatible image module is found. */
+    const zip = new window.PizZip(arrayBuffer);
+    const doc = new window.docxtemplater(zip, {
+      paragraphLoop: true,
+      linebreaks:    true,
+    });
+
+    /* 5. Render all markers */
+    doc.render(data);
+
+    /* 6. Generate blob and trigger download */
+    const blob = doc.getZip().generate({
+      type:        'blob',
+      mimeType:    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      compression: 'DEFLATE',
+    });
+
+    const safeMsn  = msn.replace(/[^a-zA-Z0-9_-]/g, '');
+    const safeDate = dateStr.replace(/\//g, '-');
+    const link     = document.createElement('a');
+    link.href      = URL.createObjectURL(blob);
+    link.download  = `DMT_${safeMsn}_${safeDate}.docx`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+
+    closeReportWizard();
+
+  } catch (err) {
+    console.error('Phase 24 — report generation failed:', err);
+    alert(`Report generation failed:\n${err.message}\n\nSee F12 console for details.`);
+  } finally {
+    btn.disabled    = false;
+    btn.textContent = '📄 Generate .docx';
+  }
+}
+
+/* Converts a data:image/jpeg;base64,... string to Uint8Array.
+   Required by the docxtemplater image module. */
+function dataUrlToUint8Array(dataUrl) {
+  const base64 = dataUrl.split(',')[1];
+  if (!base64) return new Uint8Array(0);
+  const binary = atob(base64);
+  const arr    = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) arr[i] = binary.charCodeAt(i);
+  return arr;
+}
+
+/* ============================================================
+   END OF WORD REPORT WIZARD — PHASE 24
+   ============================================================ */
+
 setPhase('init');
 
 /* Phase 21: start loading the ONNX model in the background.
@@ -4898,7 +5447,7 @@ setPhase('init');
    likely already be ready. */
 initOnnxModel();
 
-} /* end of initApp() */
+} /* end of initApp() */  
 /* ============================================================
    SERVICE WORKER REGISTRATION
    ============================================================
