@@ -449,6 +449,7 @@ const state = {
   /* ---- ONNX detections (phase 21 / 22) ---- */
   onnxDetections: [],       // array of {label, confidence, x, y, w, h} in image-space px
   showOnnxBoxes: false,     // true = draw bounding boxes on canvas (phase 22); false = badge only
+  onnxRectProposed: false,  // true while an ONNX bbox is pre-filling the Canny search region (phase 23A)
 
   /* ---- Word report (phase 24) ---- */
   lastStereoDepthMm: null,  // last stereo depth result, for report form pre-fill
@@ -471,7 +472,8 @@ const btnNewProject    = document.getElementById('btn-new-project');
 const btnConfirmPoint  = document.getElementById('btn-confirm-point');
 const btnConfirmMeas   = document.getElementById('btn-confirm-meas');
 const btnCancelMeas    = document.getElementById('btn-cancel-meas');
-const btnAutoDetect    = document.getElementById('btn-auto-detect');
+const btnAutoDetect       = document.getElementById('btn-auto-detect');
+const btnConfirmOnnxRect  = document.getElementById('btn-confirm-onnx-rect');
 const btnAddDim        = document.getElementById('btn-add-dim');
 const fabExitClean     = document.getElementById('fab-exit-clean');
 
@@ -732,6 +734,7 @@ function loadPhotoFromBlob(blob) {
       state.heatmapCanvas = null;
       state.onnxDetections = [];   // clear previous detections on new photo
       state.showOnnxBoxes  = false; // reset boxes toggle on new photo (phase 22)
+      state.onnxRectProposed = false; // reset ONNX proposal on new photo (phase 23A)
       state.showSafeZone = true;   // shown until first point is placed
       resetZoom();
       /* Phase 17: apply lens undistortion if a profile exists for
@@ -960,13 +963,33 @@ async function initOnnxModel() {
         else if (attempts > 100) { clearInterval(poll); reject(new Error('ort.min.js did not load after 10s')); }
       }, 100);
     });
-    /* Tell ORT where to find the .wasm files — they live in lib/
-       alongside ort.min.js so the relative path is the same. */
+    /* Tell ORT where to find the .wasm files — needed for the WASM
+       backend and for the WASM fallback even when WebGPU is primary. */
     ort.env.wasm.wasmPaths = './lib/';
-    onnxSession = await ort.InferenceSession.create(ONNX_MODEL_PATH, {
-      executionProviders: ['wasm']
-    });
-    console.log('Phase 21: ONNX model loaded OK. Input:',
+    /* Prefer WebGPU (GPU-accelerated, 3-10x faster) when the browser
+       supports it. We check navigator.gpu first to avoid error noise on
+       browsers without WebGPU (Firefox, older Safari). If WebGPU session
+       creation fails for any reason (driver issue, context lost, ORT EP
+       not initialised), we null the session and retry with WASM so the
+       outer catch only fires when WASM itself fails. */
+    let _onnxBackend = 'wasm';
+    if (typeof navigator !== 'undefined' && navigator.gpu) {
+      try {
+        onnxSession = await ort.InferenceSession.create(ONNX_MODEL_PATH, {
+          executionProviders: ['webgpu']
+        });
+        _onnxBackend = 'webgpu';
+      } catch (_gpuErr) {
+        console.info('ONNX WebGPU EP unavailable, falling back to WASM:', _gpuErr.message);
+        onnxSession = null;
+      }
+    }
+    if (!onnxSession) {
+      onnxSession = await ort.InferenceSession.create(ONNX_MODEL_PATH, {
+        executionProviders: ['wasm']
+      });
+    }
+    console.log(`Phase 21: ONNX model loaded OK (${_onnxBackend}). Input:`,
       Object.keys(onnxSession.inputNames),
       'Output:', Object.keys(onnxSession.outputNames));
   } catch (err) {
@@ -1955,6 +1978,12 @@ function onTouchStart(evt) {
     
     /* Auto-detect: start rectangle drag or prepare for tap. */
     if (state.phase === 'detect-tap') {
+      // Phase 23A: if the inspector starts drawing their own rect,
+      // dismiss the ONNX proposal immediately.
+      if (state.onnxRectProposed) {
+        state.onnxRectProposed = false;
+        updateButtons();
+      }
       state.rectStart = imgPos;
       state.rectEnd   = imgPos;
       return;
@@ -2153,6 +2182,12 @@ function onMouseDown(evt) {
 
   /* Auto-detect rectangle: start dragging. */
   if (state.phase === 'detect-tap') {
+    // Phase 23A: if the inspector starts drawing their own rect,
+    // dismiss the ONNX proposal immediately.
+    if (state.onnxRectProposed) {
+      state.onnxRectProposed = false;
+      updateButtons();
+    }
     state.rectStart = imgPos;
     state.rectEnd   = imgPos;
     return;
@@ -2580,6 +2615,7 @@ document.getElementById('new-confirm').addEventListener('click', () => {
   state.pendingB = null;
   state.dimCounter = 0;
   state.editingReference = false;
+  state.onnxRectProposed = false;
   resetZoom();
   setPhase('init');
 });
@@ -2717,7 +2753,7 @@ function setPhase(newPhase) {
 function updateButtons() {
   /* Toolbar buttons */
   [btnNewProject, btnConfirmPoint, btnConfirmMeas,
-   btnCancelMeas, btnAutoDetect, btnAddDim]
+   btnCancelMeas, btnAutoDetect, btnAddDim, btnConfirmOnnxRect]
     .forEach(b => b.style.display = 'none');
 
   /* Left-panel secondary buttons */
@@ -2754,6 +2790,8 @@ function updateButtons() {
   }
   else if (state.phase === 'detect-tap') {
     btnCancelMeas.style.display = 'block';
+    // Phase 23A: show confirm button only while the ONNX proposal is still active
+    if (state.onnxRectProposed) btnConfirmOnnxRect.style.display = 'block';
   }
   else if (state.phase === 'measure-1-empty') {
     btnCancelMeas.style.display = 'block';
@@ -2804,7 +2842,9 @@ function updateHint() {
     else if (visible === total) hint.textContent = `${total} dimension${total > 1 ? 's' : ''} placed.`;
     else hint.textContent = `${visible}/${total} visible.`;
   } else if (state.phase === 'detect-tap') {
-    hint.textContent = '🎯 Draw a rectangle over the object to measure — tap and drag without lifting.';
+    hint.textContent = state.onnxRectProposed
+      ? '🤖 ONNX region detected — tap ✓ Use ONNX region to accept, or drag to select your own area.'
+      : '🎯 Draw a rectangle over the object to measure — tap and drag without lifting.';
   } else if (state.phase === 'measure-1-empty') {
     hint.textContent = 'Tap the first endpoint of the dimension.';
   } else if (state.phase === 'measure-1') {
@@ -3011,8 +3051,31 @@ document.getElementById('rect-measure-cancel').addEventListener('click', closeRe
   
 
    btnAutoDetect.addEventListener('click', () => {
-  state.pendingA = null; state.pendingB = null;
+  state.pendingA = null;
+  state.pendingB = null;
+  // Phase 23A: if ONNX detections exist, pre-fill the Canny search region
+  // with the highest-confidence detection's bounding box. The blue dashed
+  // rectangle appears immediately; the inspector can confirm or override.
+  if (state.onnxDetections && state.onnxDetections.length > 0) {
+    const best = state.onnxDetections.reduce((a, b) =>
+      b.confidence > a.confidence ? b : a
+    );
+    state.rectStart        = { x: best.x,          y: best.y };
+    state.rectEnd          = { x: best.x + best.w, y: best.y + best.h };
+    state.onnxRectProposed = true;
+  } else {
+    state.rectStart        = null;
+    state.rectEnd          = null;
+    state.onnxRectProposed = false;
+  }
   setPhase('detect-tap');
+});
+
+btnConfirmOnnxRect.addEventListener('click', () => {
+  // Confirm the ONNX-proposed region: run Canny on the pre-filled
+  // rectStart/rectEnd exactly as if the inspector had drawn it manually.
+  state.onnxRectProposed = false;
+  commitRectDimensions();
 });
 
 btnAddDim.addEventListener('click', () => {

@@ -178,6 +178,14 @@ Tagged v1.5-onnx after phase 21. Tagged v1.6-word-report after phase 24.
   the confidence threshold (0.35), shows "No damage type detected". Never appears on
   exported JPEGs. Model and runtime files in lib/ (best.onnx, ort.min.js,
   ort-wasm-simd.wasm, ort-wasm.wasm). ONNX_ENABLED flag allows disabling entirely.
+- ONNX WebGPU backend (added in phase 23A session, June 2026): ONNX Runtime now
+  attempts the WebGPU execution provider first (GPU-accelerated, 3-10× faster),
+  falling back to WASM (CPU) automatically if unavailable. Requires Chrome 113+,
+  Edge 113+, or Safari 17.4+. Older browsers go directly to WASM — identical
+  behaviour to before. navigator.gpu checked explicitly before attempting WebGPU
+  to avoid error noise. If the WebGPU EP throws for any reason, the session is
+  recreated with WASM. No change to inference results, only execution speed.
+  Confirmed backend logged on startup: "ONNX model loaded OK (webgpu/wasm)".
 
 ### Pending work (current focus)
 
@@ -196,22 +204,20 @@ Ongoing improvements to the Damage Measurement Tool, in planned order:
   Photos added manually in Word for now. Image embedding planned for
   phase 29 (PDF export, HTML + base64 approach, no external dependencies).
   Tag: v1.6-word-report.
-- Phase 22 — ONNX bounding boxes + automatic dimension estimate. ← NEXT
+- Phase 22 — ✅ COMPLETE. ONNX bounding boxes + automatic dimension estimate.
   Toggle button in left panel (visible when detections exist). Draws each
-  detection as a labelled rectangle on the canvas with its approximate
-  dimensions in mm: "Dent 96% — ~45×32 mm". Dimensions computed from
-  bbox pixel size × state.mmPerPixel. Prefixed with ~ to distinguish from
-  precision measurements. Boxes never appear on exported JPEGs. This phase
-  is the visual foundation for Phase 23A.
+  detection as a labelled rectangle with approximate mm dimensions
+  ("Dent 96% — ~45×32 mm"). Boxes excluded from exported JPEGs.
   Tag: v1.7-onnx-bbox.
-- Phase 23A — ONNX → Canny automatic connection. No retraining needed.
-  When ONNX detects damage and inspector taps Auto-detect, the ONNX
-  bounding box pre-fills the Canny search region automatically. Inspector
-  can accept, adjust, or ignore it and draw their own. Manual measurement
-  always available. All three modes (ONNX badge, Canny auto, manual)
-  coexist — none replaces another. Works best for scratch, crack and
-  blend-out (visible boundary). Less reliable for diffuse dents.
-  Tag: v1.8-onnx-canny.
+- Phase 23A — ✅ COMPLETE. ONNX → Canny automatic connection. Pressing
+  Auto-detect when ONNX detections exist pre-fills the Canny search region
+  with the highest-confidence bbox, shown as a blue dashed rectangle.
+  Inspector confirms with ✓ Use ONNX region or draws their own rectangle
+  to override. Manual fallback always available. Tag: v1.8-onnx-canny.
+  Also in this session: WebGPU backend for ONNX Runtime (see tech stack).
+- Stereometry improved ← NEXT. Diagnosis session first (Realme GT 7 Pro,
+  object of known depth, identify dominant error source). Then fix.
+  Tag: v1.8-stereo-improved.
 - Phase 23B — Domain-aware ONNX: rivets and panel edges. Requires P3
   (new dataset with rivet and edge classes, retrain, export new .onnx).
   Proposes cota distance from damage edge to nearest rivet centre
@@ -352,13 +358,15 @@ Ongoing improvements to the Damage Measurement Tool, in planned order:
 21. ✅ ONNX Runtime Web (basic): YOLOv8 nano model integrated in browser.
     Automatic inference on photo load. Text summary badge bottom-right.
     No bounding boxes. ONNX Runtime Web 1.18.0 local. Tag v1.5-onnx.
-22. ⏸ ONNX bounding boxes + automatic dimension estimate: toggle button
+22. ✅ ONNX bounding boxes + automatic dimension estimate: toggle button
     draws detection rectangles on canvas with approximate mm dimensions
-    ("Dent 96% — ~45×32 mm"). Visual foundation for phase 23A.
+    ("Dent 96% — ~45×32 mm"). Boxes excluded from exported JPEGs.
     Tag v1.7-onnx-bbox.
-23A. ⏸ ONNX → Canny automatic connection: ONNX bounding box pre-fills
-     Canny search region when inspector taps Auto-detect. No retraining.
-     All measurement modes remain available. Tag v1.8-onnx-canny.
+23A. ✅ ONNX → Canny automatic connection: pressing Auto-detect when ONNX
+     detections exist pre-fills the Canny search region with the
+     highest-confidence bbox (blue dashed rectangle). Inspector confirms
+     with ✓ Use ONNX region or draws their own to override. Manual
+     fallback always preserved. Tag v1.8-onnx-canny.
 23B. ⏸ Domain-aware ONNX (rivets + edges): requires P3 (new dataset,
      retrain). Proposes rivet-to-damage cota automatically.
 24. ✅ Local Word report: three-step wizard (overview photo → detail photo
@@ -421,13 +429,25 @@ incompatibility with docxtemplater-image-module-free).
 Commit message: `phase 24 complete: Word report wizard`
 Worked directly on main.
 
+### Checkpoint at phase 22 close — completed
+
+✅ Tag: `v1.7-onnx-bbox` — ONNX bounding boxes on canvas with approximate
+mm dimensions. Toggle button in left panel.
+Commit message: `phase 22 complete: ONNX bbox visualisation + auto dimension`
+Branch: feature/phase-22-onnx-bbox → main.
+
+### Checkpoint at phase 23A close — completed
+
+✅ Tag: `v1.8-onnx-canny` — ONNX bbox pre-fills Canny search region.
+WebGPU backend for ONNX Runtime (falls back to WASM automatically).
+Commit message: `phase 23A complete: ONNX bbox pre-fills Canny search region`
+Branch: feature/phase-23a-onnx-canny → main.
+
 ### Planned branches
 
-- `feature/phase-22-onnx-bbox` — ONNX bounding boxes + automatic mm estimate. ← NEXT
-- `feature/phase-23a-onnx-canny` — ONNX bounding box → Canny auto ROI.
-- `feature/phase-23b-domain-aware` — rivets and edges (requires P3).
+- `feature/phase-23b-domain-aware` — rivets and edges (requires P3). Blocked.
 
-All branches fork from main after v1.6-word-report.
+All branches up to v1.8-onnx-canny merged to main.
 
 ## Tech stack and constraints
 
@@ -1177,16 +1197,30 @@ equivalent. This is noted explicitly only where the distinction matters.
 ### Block 4 — Applied AI and custom-trained model
 
 15. **Learn Python oriented to computer vision.**
-16. **Build a custom vehicle damage dataset.** 200–500 labelled
-    images. No confidentiality constraints. Classes: dent, scratch,
-    paint_damage, bumper_damage. Try open sources first (Roboflow
-    Universe, Kaggle). ArUco markers NOT required in training photos.
-17. **Train a small model with YOLOv8 or similar.** ✅ Completed.
-    YOLOv8 nano trained on aircraft-skin-defects, exported to best.onnx.
+16. **Build a custom vehicle damage dataset.** 200–500 labelled images.
+    No confidentiality constraints. Classes: dent, scratch, paint_damage,
+    bumper_damage. Try open sources first (Roboflow Universe, Kaggle).
+    ArUco markers NOT required in training photos.
+    Annotation type required: instance segmentation (polygon masks), NOT
+    bounding boxes. In Roboflow, filter by "Instance Segmentation".
+    Bounding-box-only datasets cannot be used with yolov8n-seg without
+    re-annotation.
+17. **Train a model with YOLOv8n-seg (instance segmentation).** ✅ Current
+    model (best.onnx) is yolov8n detection — bounding boxes only. Next
+    training iteration must use yolov8n-seg to produce pixel-level instance
+    masks. Masks enable automatic contour extraction and real damage geometry
+    (length, width, area, orientation via cv.minAreaRect), which is required
+    for automatic dimension proposals. Export to ONNX.
 18. **Integrate the trained model into the web app via ONNX Runtime
-    Web.** ✅ Completed in phase 21. Tag v1.5-onnx.
+    Web.** ✅ Completed in phase 21 (detection model). Tag v1.5-onnx.
+    Next iteration will integrate a segmentation model output (masks).
 19. **Aerospace AI model for automatic classification (corporate
     decision).** Depends entirely on corporate decisions.
+    Architecture decision (locked): yolov8n-seg (instance segmentation).
+    Bounding-box models are insufficient for production aeronautical use —
+    real damage cotas require contour geometry, not surrounding rectangles.
+    Annotation effort is higher (polygon masks vs rectangles) but required
+    for the target accuracy level.
 
 ### Block 5 — Augmented reality and technical drawings
 
@@ -1206,14 +1240,15 @@ equivalent. This is noted explicitly only where the distinction matters.
     publicly (LinkedIn or technical blog). Return materialises at
     12–18 months. Cost: 1–2 hours/week.
 
-## How to start the next session (Phase 22 — ONNX bbox + auto dimension)
+## How to start the next session (Stereometry improved)
 
-Phases completed: 1–18, 21, 24. Tags: v1.0-core through v1.6-word-report.
+Phases completed: 1–18, 21, 22, 23A, 24.
+Tags: v1.0-core through v1.8-onnx-canny.
 
 Confirmed roadmap order (decided June 2026):
-1. Phase 22 — ONNX bbox visualisation + automatic mm estimate ← NEXT
-2. Phase 23A — ONNX bbox pre-fills Canny search region (no retraining)
-3. Stereometry improved — diagnosis session first, then fix
+1. Phase 22 — ✅ COMPLETE. Tag v1.7-onnx-bbox.
+2. Phase 23A — ✅ COMPLETE. Tag v1.8-onnx-canny.
+3. Stereometry improved ← NEXT — diagnosis session first, then fix
 4. Vehicle model + dual-model app — Train YOLOv8 on a public car
    damage dataset (Roboflow Universe, CC BY 4.0). Export to
    best_vehicle.onnx. Add model mode selector to app (Aerospace /
@@ -1244,14 +1279,11 @@ When opening a new chat:
 5. Deliver changes as copy-pasteable fragments for VS Code, not as
    whole-file replacements. Explain each fragment before presenting it.
 
-Phase 22 — ONNX bounding boxes + automatic dimension estimate:
-  Toggle button in left panel. Only visible in measure-idle when
-  state.onnxDetections.length > 0. Draws each detection as a coloured
-  rectangle on canvas with label: "Dent 96% — ~45×32 mm". Dimensions
-  from bbox px × state.mmPerPixel. ~ prefix marks as approximate.
-  state.showOnnxBoxes flag. Boxes never appear on exported JPEGs.
-  Design decisions confirmed: text label (not engineering cota lines),
-  button-triggered (not automatic), all detections shown (not just top).
-  Active branch: feature/phase-22-onnx-bbox
-  Commit message: phase 22 complete: ONNX bbox visualisation + auto dimension
-  Tag after merge: v1.7-onnx-bbox
+Stereometry improved — next session:
+  Diagnosis first: load two photos of an object with known depth (e.g. a
+  book or box), run the stereo flow, compare result to real value, log
+  the error. Identify whether the dominant source is baseline estimation,
+  disparity search, or the depth formula itself. Fix based on findings.
+  Active branch: feature/stereometry-improved (fork from main after v1.8-onnx-canny)
+  Commit message: stereometry improved: [describe fix]
+  Tag after merge: v1.8-stereo-improved
