@@ -216,15 +216,22 @@ const AUTO_DETECT_WINDOW_MM = 120;
    app root. The model is served as a static file alongside
    the other assets.
    ============================================================ */
-const ONNX_ENABLED            = true;
+const ONNX_ENABLED              = true;
 const ONNX_CONFIDENCE_THRESHOLD = 0.35;
-const ONNX_MODEL_PATH         = './lib/best_aerospace.onnx';
 
-/* Class names in the same order as the model was trained.
-   Index 0 = crack, 1 = dent, 2 = paint-off, 3 = scratch.
-   These must match the classes in data.yaml exactly. */
+/* Model file paths, one per domain. */
+const ONNX_MODEL_PATH         = './lib/best_aerospace.onnx';
+const ONNX_MODEL_PATH_VEHICLE = './lib/best_vehicle.onnx';
+
+/* Aerospace model class labels (trained order, data.yaml verified):
+   0=crack  1=dent  2=paint-off  3=scratch */
 const ONNX_CLASS_NAMES  = ['crack', 'dent', 'paint-off', 'scratch'];
 const ONNX_CLASS_COLORS = ['#e53935', '#ff9800', '#ffeb3b', '#2a6fdb'];
+
+/* Vehicle model class labels (trained 25/06/2026, data.yaml order):
+   0=crack  1=dent  2=glass shatter  3=lamp broken  4=scratch  5=tire flat */
+const ONNX_CLASS_NAMES_VEHICLE  = ['crack', 'dent', 'glass shatter', 'lamp broken', 'scratch', 'tire flat'];
+const ONNX_CLASS_COLORS_VEHICLE = ['#e53935', '#ff9800', '#29b6f6', '#ab47bc', '#2a6fdb', '#ffeb3b'];
 
 /* ============================================================
    AUTH / LOGIN
@@ -453,6 +460,9 @@ const state = {
 
   /* ---- Word report (phase 24) ---- */
   lastStereoDepthMm: null,  // last stereo depth result, for report form pre-fill
+
+  /* ---- Model mode (dual-model) ---- */
+  modelMode: 'aerospace',   // 'aerospace' | 'vehicle'
 };
 
 const welcome = document.getElementById('welcome');
@@ -494,6 +504,15 @@ const btnSavePanel     = document.getElementById('btn-save-panel');
 const btnSharePanel    = document.getElementById('btn-share-panel');
 const btnReportPanel   = document.getElementById('btn-report-panel');
 const btnOnnxBoxes     = document.getElementById('btn-onnx-boxes');
+
+const btnModeAerospace = document.getElementById('btn-mode-aerospace');
+const btnModeVehicle   = document.getElementById('btn-mode-vehicle');
+const modelModeBadge   = document.getElementById('model-mode-badge');
+
+/* Active class definitions — switched by loadModelForMode().
+   Initialised to aerospace to match the startup load. */
+let activeClassNames  = ONNX_CLASS_NAMES;
+let activeClassColors = ONNX_CLASS_COLORS;
 
 
 /* ============================================================
@@ -938,63 +957,93 @@ function applyAutoCalibration(marker, tilted, allMarkers) {
 }
 
 /* ============================================================
-   ONNX MODEL INITIALISATION (phase 21)
+   ONNX MODEL LOADING — lazy, per mode
    ============================================================
-   Called once at app startup. Loads the model in the background
-   while the inspector picks a photo. onnxSession is kept as a
-   variable inside initApp() so all functions below can access it.
-   If loading fails (file missing, incompatible model), onnxSession
-   stays null and all inference calls are silently skipped.
-   ============================================================ */
-let onnxSession = null;
+   loadModelForMode(mode) loads the correct .onnx the first time a
+   mode is activated, then reuses the cached session on subsequent
+   switches. Switches activeClassNames / activeClassColors so that
+   the inference pipeline and drawing code always use the right
+   label set for the currently active model.
 
-async function initOnnxModel() {
+   Called at startup with 'aerospace' and again whenever the
+   inspector taps the Aerospace / Vehicle toggle in the panel.
+   ============================================================ */
+let onnxSession = null;          // currently active ORT InferenceSession
+const onnxSessions = {};         // lazy cache: { aerospace: session, vehicle: session }
+
+async function loadModelForMode(mode) {
   if (!ONNX_ENABLED) return;
+
+  /* Show "Loading…" in the badge immediately so the user gets
+     visual feedback, especially for the first vehicle load. */
+  if (modelModeBadge && state.phase !== 'init') {
+    modelModeBadge.textContent = 'Model: Loading…';
+    modelModeBadge.style.display = 'inline-flex';
+  }
+  if (btnModeAerospace) btnModeAerospace.disabled = true;
+  if (btnModeVehicle)   btnModeVehicle.disabled   = true;
+
   try {
-    /* Wait for ort to be defined — ort.min.js loads async so it
-       may not be available yet when initApp() runs. Poll in the
-       same way the app waits for cv to be ready. */
-    await new Promise((resolve, reject) => {
-      if (typeof ort !== 'undefined') { resolve(); return; }
-      let attempts = 0;
-      const poll = setInterval(() => {
-        attempts++;
-        if (typeof ort !== 'undefined') { clearInterval(poll); resolve(); }
-        else if (attempts > 100) { clearInterval(poll); reject(new Error('ort.min.js did not load after 10s')); }
-      }, 100);
-    });
-    /* Tell ORT where to find the .wasm files — needed for the WASM
-       backend and for the WASM fallback even when WebGPU is primary. */
-    ort.env.wasm.wasmPaths = './lib/';
-    /* Prefer WebGPU (GPU-accelerated, 3-10x faster) when the browser
-       supports it. We check navigator.gpu first to avoid error noise on
-       browsers without WebGPU (Firefox, older Safari). If WebGPU session
-       creation fails for any reason (driver issue, context lost, ORT EP
-       not initialised), we null the session and retry with WASM so the
-       outer catch only fires when WASM itself fails. */
-    let _onnxBackend = 'wasm';
-    if (typeof navigator !== 'undefined' && navigator.gpu) {
-      try {
-        onnxSession = await ort.InferenceSession.create(ONNX_MODEL_PATH, {
-          executionProviders: ['webgpu']
-        });
-        _onnxBackend = 'webgpu';
-      } catch (_gpuErr) {
-        console.info('ONNX WebGPU EP unavailable, falling back to WASM:', _gpuErr.message);
-        onnxSession = null;
-      }
-    }
-    if (!onnxSession) {
-      onnxSession = await ort.InferenceSession.create(ONNX_MODEL_PATH, {
-        executionProviders: ['wasm']
+    if (!onnxSessions[mode]) {
+      /* Wait for ort to be defined (same poll pattern as before). */
+      await new Promise((resolve, reject) => {
+        if (typeof ort !== 'undefined') { resolve(); return; }
+        let attempts = 0;
+        const poll = setInterval(() => {
+          attempts++;
+          if (typeof ort !== 'undefined') { clearInterval(poll); resolve(); }
+          else if (attempts > 100) { clearInterval(poll); reject(new Error('ort.min.js did not load after 10s')); }
+        }, 100);
       });
+
+      ort.env.wasm.wasmPaths = './lib/';
+
+      const modelPath = (mode === 'vehicle') ? ONNX_MODEL_PATH_VEHICLE : ONNX_MODEL_PATH;
+      let session = null;
+      let backend = 'wasm';
+
+      if (typeof navigator !== 'undefined' && navigator.gpu) {
+        try {
+          session = await ort.InferenceSession.create(modelPath, {
+            executionProviders: ['webgpu']
+          });
+          backend = 'webgpu';
+        } catch (_gpuErr) {
+          console.info(`ONNX WebGPU EP unavailable for ${mode} model, falling back to WASM:`, _gpuErr.message);
+          session = null;
+        }
+      }
+      if (!session) {
+        session = await ort.InferenceSession.create(modelPath, {
+          executionProviders: ['wasm']
+        });
+      }
+      onnxSessions[mode] = session;
+      console.log(`ONNX ${mode} model loaded OK (${backend}). Input:`,
+        Object.keys(session.inputNames), 'Output:', Object.keys(session.outputNames));
     }
-    console.log(`Phase 21: ONNX model loaded OK (${_onnxBackend}). Input:`,
-      Object.keys(onnxSession.inputNames),
-      'Output:', Object.keys(onnxSession.outputNames));
+
+    /* Activate the session and the matching class label arrays. */
+    onnxSession       = onnxSessions[mode];
+    state.modelMode   = mode;
+    activeClassNames  = (mode === 'vehicle') ? ONNX_CLASS_NAMES_VEHICLE  : ONNX_CLASS_NAMES;
+    activeClassColors = (mode === 'vehicle') ? ONNX_CLASS_COLORS_VEHICLE : ONNX_CLASS_COLORS;
+
+    /* Discard detections from the previous model — labels are incompatible. */
+    state.onnxDetections = [];
+
+    /* Re-run inference on the current photo with the new model. */
+    if (state.photo) runOnnxDetection();
+
   } catch (err) {
-    console.warn('Phase 21: ONNX model failed to load — detection disabled.', err);
-    onnxSession = null;
+    console.warn(`ONNX ${mode} model failed to load — detection disabled.`, err);
+    if (mode === 'aerospace') onnxSession = null;
+  } finally {
+    if (btnModeAerospace) btnModeAerospace.disabled = false;
+    if (btnModeVehicle)   btnModeVehicle.disabled   = false;
+    updateModelModeUI();
+    updateButtons();
+    redraw();
   }
 }
 
@@ -1071,8 +1120,8 @@ async function runOnnxDetection() {
     /* output is stored in column-major order for YOLOv8:
        output[attr * 8400 + box] — not row-major.
        So output[0..8399] = all cx values, output[8400..16799] = all cy, etc. */
-    const numBoxes  = 8400;
-    const numAttrs  = 8;   // 4 coords + 4 class scores
+    const numBoxes   = 8400;
+    const numClasses = activeClassNames.length;   // 4 for aerospace, 6 for vehicle
     const imgW = state.photo.width  || state.photo.naturalWidth;
     const imgH = state.photo.height || state.photo.naturalHeight;
     const scaleX = imgW / 640;
@@ -1084,7 +1133,7 @@ async function runOnnxDetection() {
       /* Find the class with the highest score for this box */
       let bestClass = 0;
       let bestScore = output[4 * numBoxes + b];   // score for class 0
-      for (let c = 1; c < 4; c++) {
+      for (let c = 1; c < numClasses; c++) {
         const score = output[(4 + c) * numBoxes + b];
         if (score > bestScore) { bestScore = score; bestClass = c; }
       }
@@ -1098,7 +1147,7 @@ async function runOnnxDetection() {
       const bh = output[3 * numBoxes + b] * scaleY;
 
       raw.push({
-        label:      ONNX_CLASS_NAMES[bestClass],
+        label:      activeClassNames[bestClass],
         classIdx:   bestClass,
         confidence: bestScore,
         x: cx - bw / 2,   // convert centre → top-left
@@ -1458,7 +1507,7 @@ function redraw() {
   if (!exportMode && state.showOnnxBoxes &&
       state.onnxDetections && state.onnxDetections.length > 0) {
     state.onnxDetections.forEach(d => {
-      const color = ONNX_CLASS_COLORS[ONNX_CLASS_NAMES.indexOf(d.label)] || '#ffffff';
+      const color = activeClassColors[activeClassNames.indexOf(d.label)] || '#ffffff';
       const cap   = d.label.charAt(0).toUpperCase() + d.label.slice(1);
       const pct   = Math.round(d.confidence * 100);
 
@@ -1512,7 +1561,7 @@ function redraw() {
 
     sumLines.forEach((line, idx) => {
       const det   = state.onnxDetections[idx];
-      const color = ONNX_CLASS_COLORS[ONNX_CLASS_NAMES.indexOf(det.label)] || '#ffffff';
+      const color = activeClassColors[activeClassNames.indexOf(det.label)] || '#ffffff';
       const rowY  = sumY + sumPad + idx * sumSpacing + sumSpacing / 2;
 
       /* Colour dot */
@@ -2746,6 +2795,7 @@ function setPhase(newPhase) {
   }
 
   updateButtons();
+  updateModelModeUI();
   updateHint();
   if (newPhase !== 'init') redraw();
 }
@@ -2806,6 +2856,27 @@ function updateButtons() {
   else if (state.phase === 'measure-2') {
     btnConfirmMeas.style.display = 'block';
     btnCancelMeas.style.display  = 'block';
+  }
+
+  /* Model mode selector: show whenever ONNX is enabled and a photo is loaded */
+  const modelModeSection = document.getElementById('model-mode-section');
+  if (modelModeSection) {
+    modelModeSection.style.display = (ONNX_ENABLED && state.phase !== 'init') ? 'block' : 'none';
+  }
+}
+
+function updateModelModeUI() {
+  if (!modelModeBadge) return;
+  const label = (state.modelMode === 'vehicle') ? 'Vehicle' : 'Aerospace';
+  modelModeBadge.textContent = `Model: ${label}`;
+  modelModeBadge.style.display = (state.phase === 'measure-idle') ? 'inline-flex' : 'none';
+
+  /* Highlight the active mode button: blue = active, secondary (#444) = inactive. */
+  if (btnModeAerospace) {
+    btnModeAerospace.classList.toggle('secondary', state.modelMode !== 'aerospace');
+  }
+  if (btnModeVehicle) {
+    btnModeVehicle.classList.toggle('secondary', state.modelMode !== 'vehicle');
   }
 }
 
@@ -5442,10 +5513,23 @@ function dataUrlToUint8Array(dataUrl) {
 
 setPhase('init');
 
-/* Phase 21: start loading the ONNX model in the background.
-   By the time the inspector picks a photo, the model will
-   likely already be ready. */
-initOnnxModel();
+/* Mode toggle buttons — registered here so they are ready
+   before the first user interaction. */
+if (btnModeAerospace) {
+  btnModeAerospace.addEventListener('click', () => {
+    if (state.modelMode !== 'aerospace') loadModelForMode('aerospace');
+  });
+}
+if (btnModeVehicle) {
+  btnModeVehicle.addEventListener('click', () => {
+    if (state.modelMode !== 'vehicle') loadModelForMode('vehicle');
+  });
+}
+
+/* Start loading the aerospace model in the background.
+   By the time the inspector picks a photo, the session will
+   likely already be cached and ready. */
+loadModelForMode('aerospace');
 
 } /* end of initApp() */  
 /* ============================================================

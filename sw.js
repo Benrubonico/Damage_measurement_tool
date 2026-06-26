@@ -10,15 +10,17 @@
      increment CACHE_VERSION below (e.g. 'v1' -> 'v2').
    ============================================================ */
 
-const CACHE_VERSION = 'v2';
+const CACHE_VERSION = 'v3';
 const CACHE_NAME    = `dmt-cache-${CACHE_VERSION}`;
 
 /* Files to cache immediately on install.
-   opencv.js (~10 MB), heic2any (~1 MB), and the ONNX runtime
-   files (ort-wasm-simd.wasm ~10 MB, ort-wasm.wasm ~9.5 MB,
-   best.onnx ~11.9 MB) are intentionally excluded here: they
-   will be cached on first use instead, so installation stays
-   fast and does not require ~32 MB of upfront download. */
+   opencv.js (~10 MB), heic2any (~1 MB), the ONNX runtime wasm
+   files (~20 MB combined), and the ONNX model files
+   (best_aerospace.onnx ~11.9 MB, best_vehicle.onnx ~11.9 MB)
+   are intentionally excluded here: they are cached on first use
+   so installation stays fast and does not require ~55 MB of
+   upfront download. best_vehicle.onnx is fetched lazily when
+   the inspector first switches to Vehicle mode. */
 const PRE_CACHE_URLS = [
   './',
   './app.js',

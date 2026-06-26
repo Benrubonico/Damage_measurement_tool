@@ -229,11 +229,27 @@
     
     body.clean #hint,
 body.clean #scale-badge,
+body.clean #model-mode-badge,
 body.clean #controls,
 body.clean #fab-fit,
 body.clean #left-panel,
 body.clean #left-panel-tab,
 body.clean #panel-backdrop { display: none !important; }
+
+    #model-mode-badge {
+      position: absolute;
+      bottom: 44px;
+      left: 12px;
+      padding: 4px 10px;
+      background: rgba(42, 111, 219, 0.85);
+      color: #fff;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+      z-index: 6;
+      pointer-events: none;
+      display: none;
+    }
 body.clean #fab-exit-clean { display: flex !important; }
 body.clean #stage          { padding-top: 0; }         /* full photo visible in clean/export mode */
 
@@ -833,6 +849,7 @@ details[open] > summary::after   { content: '▾'; }
     <canvas id="canvas" style="display:none"></canvas>
     <div id="hint" style="display:none"></div>
     <button id="scale-badge"></button>
+    <div id="model-mode-badge"></div>
     <button id="fab-fit" title="Fit to screen">1:1</button>
   </div>
 
@@ -1178,6 +1195,15 @@ details[open] > summary::after   { content: '▾'; }
 
   <div class="panel-actions" style="border-bottom: 1px solid #333; margin-bottom: 4px;">
     <button id="btn-stereo-panel">🧪 Depth / Height estimate (experimental)</button>
+  </div>
+
+  <!-- Model mode selector (dual-model) — shown when ONNX enabled and photo loaded -->
+  <div id="model-mode-section" style="display:none; padding:8px 12px; border-bottom:1px solid #333;">
+    <div style="font-size:11px; color:#888; margin-bottom:6px;">Detection model</div>
+    <div style="display:flex; gap:6px;">
+      <button id="btn-mode-aerospace" style="flex:1; min-width:0; padding:10px 6px; font-size:13px;">✈ Aerospace</button>
+      <button id="btn-mode-vehicle"   class="secondary" style="flex:1; min-width:0; padding:10px 6px; font-size:13px;">🚗 Vehicle</button>
+    </div>
   </div>
 
   <div class="panel-actions">
