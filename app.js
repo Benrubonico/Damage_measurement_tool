@@ -3378,6 +3378,7 @@ let stereoRoiRect = null;   // {x, y, w, h} in image-space pixels of photo 1
 let stereoPointA  = null;   // {x, y} object centre marked on photo 1 (image-space)
 let stereoPointB  = null;   // {x, y} object centre marked on photo 2 (image-space)
 let stereoBoxSize = null;   // {w, h} reference box size (image-space), replicated on photo 2
+let stereoFailReason = null; // diagnostic: why triangulateDepthPair last returned null
 
 /* ---------- entry point ---------- */
 document.getElementById('btn-stereo-panel').addEventListener('click', () => {
@@ -4066,7 +4067,8 @@ function calculateStereoDepth() {
    Returns depth in mm (negative = inward dent, positive = outward
    bulge), or null if the geometry is invalid. */
 function triangulateDepthPair(photoA, photoB, pointA, pointB) {
-  if (!pointA || !pointB) return null;
+  stereoFailReason = null;
+  if (!pointA || !pointB) { stereoFailReason = 'Point A or B not set.'; return null; }
 
   try {
     /* Marker centres in each photo (camera-movement reference). */
@@ -4081,12 +4083,9 @@ function triangulateDepthPair(photoA, photoB, pointA, pointB) {
 
     const baselinePx = Math.hypot(cxB - cxA, cyB - cyA);
     const baselineMm = baselinePx * photoA.marker.mmPerPixel;
-    if (baselineMm < 1) return null;
 
     /* Focal length from the calibration profile if available, else a
-       typical smartphone fallback. NOTE: this scales distanceMm and thus
-       deltaZ linearly — a wrong focalPx mis-scales the result even with
-       perfect point marking. Pending verification. */
+       typical smartphone fallback. */
     const stereoModel = photoA.lensModel || null;
     const profile    = stereoModel ? LENS_PROFILES[stereoModel] : null;
     const focalPx    = profile
@@ -4103,25 +4102,44 @@ function triangulateDepthPair(photoA, photoB, pointA, pointB) {
     const residualX = objShiftX - (cxB - cxA);
     const residualY = objShiftY - (cyB - cyA);
     const disparity = residualX * moveDx + residualY * moveDy;
+    const deltaZ     = baselinePx > 0 ? (disparity * distanceMm) / baselinePx : NaN;
 
-    if (Math.abs(disparity) < 0.5) {
-      console.warn('Stereo: residual too small — object appears flat.');
+    /* ===== STEREO DIAGNOSTIC (temporary — remove once stable) ===== */
+    console.log('Stereo diag: pair', {
+      lensModel: stereoModel, hasProfile: !!profile, focalPx: focalPx.toFixed(0),
+      markerSizeMm: photoA.marker.sizeMm, avgSidePxA: photoA.marker.avgSidePx.toFixed(2),
+      distanceMm: distanceMm.toFixed(1),
+      markerCentreA: `${cxA.toFixed(1)},${cyA.toFixed(1)}`,
+      markerCentreB: `${cxB.toFixed(1)},${cyB.toFixed(1)}`,
+      baselinePx: baselinePx.toFixed(2), baselineMm: baselineMm.toFixed(1),
+      pointA: `${pointA.x.toFixed(1)},${pointA.y.toFixed(1)}`,
+      pointB: `${pointB.x.toFixed(1)},${pointB.y.toFixed(1)}`,
+      objShift: `${objShiftX.toFixed(1)},${objShiftY.toFixed(1)}`,
+      disparity: disparity.toFixed(2), deltaZ: deltaZ.toFixed(1)
+    });
+    /* ===== END STEREO DIAGNOSTIC ===== */
+
+    if (baselineMm < 1) {
+      stereoFailReason = `Baseline too small (${baselineMm.toFixed(1)} mm) — ` +
+        `move the camera more between the two photos.`;
       return null;
     }
-
-    /* deltaZ = disparity * distanceMm / baselinePx (thin-lens stereo,
-       disparity measured relative to the marker). Positive = outward,
-       negative = inward (dent). */
-    const deltaZ = (disparity * distanceMm) / baselinePx;
-
+    if (Math.abs(disparity) < 0.5) {
+      stereoFailReason = `Object shows almost no depth offset ` +
+        `(disparity ${disparity.toFixed(2)} px) — looks flat, or the two marked ` +
+        `points may not match the same object point.`;
+      return null;
+    }
     if (Math.abs(deltaZ) > distanceMm * 0.40) {
-      console.warn(`Stereo: deltaZ out of range (${deltaZ.toFixed(1)} mm)`);
+      stereoFailReason = `Result out of plausible range (${deltaZ.toFixed(1)} mm). ` +
+        `Likely a marking or baseline issue — check the console diagnostic for this pair.`;
       return null;
     }
 
     return deltaZ;
 
   } catch (err) {
+    stereoFailReason = `Internal error: ${err.message}`;
     console.warn('Stereo triangulation failed:', err);
     return null;
   }
@@ -4184,7 +4202,7 @@ function showStereoResult(depthMm) {
   if (depthMm === null) {
     valueEl.textContent  = 'Calculation failed';
     valueEl.style.color  = '#e74c3c';
-    detailEl.textContent = 'Template match score too low. Try a region with more visible texture, or check that both photos show the same object.';
+    detailEl.textContent = stereoFailReason || 'Could not compute a reliable result.';
   } else {
     state.lastStereoDepthMm = depthMm;   // phase 24: pre-fill report depth field
     const sign    = depthMm < 0 ? '−' : '+';
