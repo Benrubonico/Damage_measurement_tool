@@ -699,7 +699,8 @@ details[open] > summary::after   { content: '▾'; }
   padding: 14px;
   font-size: 15px;
 }
-#stereo-roi-wrap {
+#stereo-roi-wrap,
+#stereo-roi-wrap-b {
   position: relative;
   width: 100%;
   background: #000;
@@ -707,11 +708,15 @@ details[open] > summary::after   { content: '▾'; }
   overflow: hidden;
   touch-action: none;
 }
-#stereo-roi-canvas {
+#stereo-roi-canvas,
+#stereo-roi-canvas-b {
   display: block;
   width: 100%;
   height: auto;
   cursor: crosshair;
+}
+#stereo-roi-canvas-b {
+  cursor: move;   /* photo 2 box is dragged, not drawn */
 }
 #stereo-roi-hint {
   font-size: 12px;
@@ -1068,6 +1073,22 @@ details[open] > summary::after   { content: '▾'; }
         <canvas id="stereo-roi-canvas"></canvas>
       </div>
       <div id="stereo-roi-hint">Tap and drag to draw the rectangle</div>
+
+      <!-- Step 2: mark the SAME object centre on photo 2 (manual stereo
+           correspondence — replaces matchTemplate). Fixed-size box, drag only. -->
+      <div id="stereo-roi-b-step" style="display:none; flex-direction:column; gap:8px;">
+        <div style="font-size:13px; font-weight:600; color:#ccc;">
+          Photo 2 — drag the box so the cross lands on the object centre.
+          The box is only a visual guide; it doesn't need to fully enclose
+          the object — only the cross position matters.
+        </div>
+        <div id="stereo-roi-wrap-b">
+          <canvas id="stereo-roi-canvas-b"></canvas>
+        </div>
+        <div id="stereo-roi-hint-b">
+          The cross must fall on the same object centre as in photo 1.
+        </div>
+      </div>
       <div style="display:flex; gap:8px;">
         <button id="btn-stereo-roi-clear" class="secondary" style="flex:1">✕ Clear</button>
         <button id="btn-stereo-calculate" class="success" style="flex:2" disabled>📐 Calculate depth / height</button>

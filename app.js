@@ -3375,6 +3375,9 @@ const STEREO_HIDE_KEY = 'stereoHideInstructions';
 */
 let stereoPhotos = [];
 let stereoRoiRect = null;   // {x, y, w, h} in image-space pixels of photo 1
+let stereoPointA  = null;   // {x, y} object centre marked on photo 1 (image-space)
+let stereoPointB  = null;   // {x, y} object centre marked on photo 2 (image-space)
+let stereoBoxSize = null;   // {w, h} reference box size (image-space), replicated on photo 2
 
 /* ---------- entry point ---------- */
 document.getElementById('btn-stereo-panel').addEventListener('click', () => {
@@ -3543,6 +3546,32 @@ function triggerStereoFilePick(slotIdx) {
     /* Load into an Image element */
     const img = await loadImageFromBlob(blob);
 
+    /* Phase 17 + stereo orientation guard: cv.undistort applies the
+       calibration matrix blindly regardless of orientation. If the
+       photo's orientation doesn't match the profile's calibrated
+       orientation (LENS_PROFILES[...].imageSize), the correction is
+       actively wrong — not just skipped — and produces large geometric
+       distortion (confirmed: same scene gave +71.5mm vs +21.4mm just
+       from portrait vs landscape). For stereo specifically, where the
+       marker shape feeds directly into baseline/scale, this is rejected
+       rather than allowed with a warning. */
+    const profileCheck = model ? LENS_PROFILES[model] : null;
+    if (profileCheck) {
+      const photoIsPortrait   = img.naturalWidth < img.naturalHeight;
+      const profileIsPortrait = profileCheck.imageSize[0] < profileCheck.imageSize[1];
+      if (photoIsPortrait !== profileIsPortrait) {
+        if (statusEl) {
+          statusEl.textContent =
+            `✗ Wrong orientation for stereo. The lens profile for "${model}" ` +
+            `is calibrated in ${profileIsPortrait ? 'portrait' : 'landscape'}. ` +
+            `Retake this photo in ${profileIsPortrait ? 'portrait' : 'landscape'} orientation.`;
+          statusEl.className = 'slot-status error';
+        }
+        if (loadBtn) loadBtn.disabled = false;
+        return;
+      }
+    }
+
     /* Phase 17: apply lens undistortion if profile exists */
     const savedLens = state.lensModel;
     state.lensModel = model || null;
@@ -3640,16 +3669,20 @@ document.getElementById('btn-stereo-show-roi').addEventListener('click', () => {
   showStereoRoiSection();
 });
 
-/* "Calculate" button — only enabled after a valid rectangle is drawn. */
+/* "Calculate" button — only enabled after BOTH points are marked. */
 document.getElementById('btn-stereo-calculate').addEventListener('click', () => {
-  if (!stereoRoiRect || stereoPhotos.length < 2) return;
+  if (!stereoPointA || !stereoPointB || stereoPhotos.length < 2) return;
   calculateStereoDepth();
 });
 
-/* "Clear" button — resets the rectangle drawn on the ROI canvas. */
+/* "Clear" button — resets both marked points and hides the photo-2 step. */
 document.getElementById('btn-stereo-roi-clear').addEventListener('click', () => {
   stereoRoiRect = null;
+  stereoPointA  = null;
+  stereoPointB  = null;
+  stereoBoxSize = null;
   drawRoiCanvas(null);
+  document.getElementById('stereo-roi-b-step').style.display = 'none';
   document.getElementById('btn-stereo-calculate').disabled = true;
   document.getElementById('stereo-roi-hint').textContent = 'Tap and drag to draw the rectangle';
 });
@@ -3663,9 +3696,14 @@ let roiDragStart = null;   // canvas-space {x, y} where the drag started
 
 function showStereoRoiSection() {
   stereoRoiRect = null;
+  stereoPointA  = null;
+  stereoPointB  = null;
+  stereoBoxSize = null;
   roiDragStart  = null;
   document.getElementById('btn-stereo-calculate').disabled = true;
-  document.getElementById('stereo-roi-hint').textContent = 'Tap and drag to draw the rectangle';
+  document.getElementById('stereo-roi-hint').textContent =
+    'Shoot both photos in PORTRAIT (calibrated orientation). Tap and drag to draw the rectangle.';
+  document.getElementById('stereo-roi-b-step').style.display = 'none';
 
   /* Show the ROI section, hide the "show roi" button */
   document.getElementById('stereo-action-buttons').style.display = 'none';
@@ -3706,7 +3744,147 @@ function drawRoiCanvas(rect) {
     ctx2.fillStyle = 'rgba(42, 111, 219, 0.12)';
     ctx2.fillRect(rect.x * sx, rect.y * sy, rect.w * sx, rect.h * sy);
     ctx2.setLineDash([]);
+
+    /* Cross at the rectangle centre — this is point A (object centre) */
+    drawStereoCross(ctx2, (rect.x + rect.w / 2) * sx, (rect.y + rect.h / 2) * sy);
   }
+}
+
+/* ---------- shared helpers (manual stereo correspondence) ---------- */
+function markerCentre(marker) {
+  const c = marker.corners;
+  return {
+    x: (c[0].x + c[1].x + c[2].x + c[3].x) / 4,
+    y: (c[0].y + c[1].y + c[2].y + c[3].y) / 4
+  };
+}
+
+/* Draws a centred red cross at canvas-space (cx, cy). */
+function drawStereoCross(ctx2, cx, cy) {
+  const r = 14;
+  ctx2.save();
+  ctx2.strokeStyle = '#ff3b30';
+  ctx2.lineWidth   = 2;
+  ctx2.setLineDash([]);
+  ctx2.beginPath();
+  ctx2.moveTo(cx - r, cy); ctx2.lineTo(cx + r, cy);
+  ctx2.moveTo(cx, cy - r); ctx2.lineTo(cx, cy + r);
+  ctx2.stroke();
+  ctx2.restore();
+}
+
+/* ---------- photo 2 ROI (drag a fixed-size box → point B) ---------- */
+/* Shows photo 2 with a fixed-size box (stereoBoxSize) centred at
+   centreImg (image-space px of photo 2). The inspector drags it so the
+   cross lands on the same object centre as in photo 1. */
+function showStereoRoiSectionB(centreImg) {
+  /* The box starts at the expected position, which may already be
+     correct — commit it as point B immediately so Calculate is usable
+     without forcing a drag. Dragging afterwards still updates it via
+     commitB() inside wireRoiCanvasB. */
+  stereoPointB = { x: centreImg.x, y: centreImg.y };
+  document.getElementById('btn-stereo-calculate').disabled = false;
+  document.getElementById('stereo-roi-b-step').style.display = 'flex';
+  document.getElementById('stereo-roi-hint-b').textContent =
+    'Box placed at the expected position — drag to fine-tune if needed, or tap Calculate. ' +
+    'The box size is only a visual guide.';
+  wireRoiCanvasB(centreImg);
+}
+
+/* Draws photo 2 with the fixed-size box + cross centred at centreImg. */
+function drawRoiCanvasB(centreImg) {
+  const img    = stereoPhotos[1].img;
+  const canvas = document.getElementById('stereo-roi-canvas-b');
+
+  const MAX_W = 800;
+  const scale = Math.min(1, MAX_W / (img.naturalWidth || img.width));
+  canvas.width  = Math.round((img.naturalWidth  || img.width)  * scale);
+  canvas.height = Math.round((img.naturalHeight || img.height) * scale);
+
+  const ctx2 = canvas.getContext('2d');
+  ctx2.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+  const sx = canvas.width  / (img.naturalWidth  || img.width);
+  const sy = canvas.height / (img.naturalHeight || img.height);
+
+  const w = stereoBoxSize.w, h = stereoBoxSize.h;
+  ctx2.strokeStyle = '#2a6fdb';
+  ctx2.lineWidth   = 2;
+  ctx2.setLineDash([6, 3]);
+  ctx2.strokeRect((centreImg.x - w / 2) * sx, (centreImg.y - h / 2) * sy, w * sx, h * sy);
+  ctx2.fillStyle = 'rgba(42, 111, 219, 0.12)';
+  ctx2.fillRect((centreImg.x - w / 2) * sx, (centreImg.y - h / 2) * sy, w * sx, h * sy);
+  ctx2.setLineDash([]);
+
+  drawStereoCross(ctx2, centreImg.x * sx, centreImg.y * sy);
+}
+
+/* Wires drag-to-move on the photo-2 canvas. Tap/drag sets the box centre
+   to the pointer position (clamped to the image); on release it becomes
+   point B. Box size stays fixed (stereoBoxSize). */
+function wireRoiCanvasB(initialCentre) {
+  const canvas = document.getElementById('stereo-roi-canvas-b');
+
+  /* Remove any previous listeners by cloning the node */
+  const fresh = canvas.cloneNode(false);
+  canvas.parentNode.replaceChild(fresh, canvas);
+  fresh.id = 'stereo-roi-canvas-b';
+
+  const img = stereoPhotos[1].img;
+  let centre = { x: initialCentre.x, y: initialCentre.y };
+
+  function imgPos(clientX, clientY) {
+    const rect = fresh.getBoundingClientRect();
+    const cx   = (clientX - rect.left) * (fresh.width  / rect.width);
+    const cy   = (clientY - rect.top)  * (fresh.height / rect.height);
+    const isx  = (img.naturalWidth  || img.width)  / fresh.width;
+    const isy  = (img.naturalHeight || img.height) / fresh.height;
+    let x = cx * isx, y = cy * isy;
+    x = Math.max(0, Math.min((img.naturalWidth  || img.width),  x));
+    y = Math.max(0, Math.min((img.naturalHeight || img.height), y));
+    return { x, y };
+  }
+
+  function moveTo(clientX, clientY) {
+    centre = imgPos(clientX, clientY);
+    drawRoiCanvasB(centre);
+  }
+
+  function commitB() {
+    stereoPointB = { x: centre.x, y: centre.y };
+    document.getElementById('btn-stereo-calculate').disabled = false;
+    document.getElementById('stereo-roi-hint-b').textContent =
+      'Point B set on photo 2 — tap Calculate (or drag again to adjust). ' +
+      'The box size is only a visual guide.';
+  }
+
+  /* ---- Mouse ---- */
+  let down = false;
+  fresh.addEventListener('mousedown', (e) => {
+    e.preventDefault(); down = true; moveTo(e.clientX, e.clientY);
+  });
+  fresh.addEventListener('mousemove', (e) => {
+    if (!down) return; e.preventDefault(); moveTo(e.clientX, e.clientY);
+  });
+  fresh.addEventListener('mouseup', (e) => {
+    if (!down) return; down = false; e.preventDefault();
+    moveTo(e.clientX, e.clientY); commitB();
+  });
+
+  /* ---- Touch ---- */
+  fresh.addEventListener('touchstart', (e) => {
+    e.preventDefault(); const t = e.touches[0]; moveTo(t.clientX, t.clientY);
+  }, { passive: false });
+  fresh.addEventListener('touchmove', (e) => {
+    e.preventDefault(); const t = e.touches[0]; moveTo(t.clientX, t.clientY);
+  }, { passive: false });
+  fresh.addEventListener('touchend', (e) => {
+    e.preventDefault(); const t = e.changedTouches[0];
+    if (t) moveTo(t.clientX, t.clientY); commitB();
+  }, { passive: false });
+
+  /* Initial render of photo 2 with the box at the expected position */
+  drawRoiCanvasB(centre);
 }
 
 /* Wires touch + mouse listeners onto the ROI canvas for drag-to-draw.
@@ -3854,50 +4032,44 @@ function commitRoi(startCS, endCS, canvas) {
   }
 
   stereoRoiRect = { x: ix, y: iy, w: iw, h: ih };
-  drawRoiCanvas(stereoRoiRect);   /* redraw with final rectangle */
+  stereoPointA  = { x: ix + iw / 2, y: iy + ih / 2 };
+  stereoBoxSize = { w: iw, h: ih };
+  stereoPointB  = null;
+  drawRoiCanvas(stereoRoiRect);   /* redraw photo 1 with rectangle + cross */
 
-  document.getElementById('btn-stereo-calculate').disabled = false;
   document.getElementById('stereo-roi-hint').textContent =
-    `Region selected (${Math.round(iw * stereoPhotos[0].marker.mmPerPixel)} × ` +
-    `${Math.round(ih * stereoPhotos[0].marker.mmPerPixel)} mm) — tap Calculate`;
+    'Point A fixed on photo 1. Now place the cross on photo 2 below.';
+
+  /* Expected centre in photo 2 = point A shifted by the marker movement.
+     This is only a starting position; the inspector fine-tunes it. */
+  const mA = markerCentre(stereoPhotos[0].marker);
+  const mB = markerCentre(stereoPhotos[1].marker);
+  const expected = {
+    x: stereoPointA.x + (mB.x - mA.x),
+    y: stereoPointA.y + (mB.y - mA.y)
+  };
+  showStereoRoiSectionB(expected);
 }
 
 function calculateStereoDepth() {
-  let maxDepthMm = null;
-
-  for (let i = 0; i < stereoPhotos.length - 1; i++) {
-    const depthMm = triangulateDepthPair(
-      stereoPhotos[i],
-      stereoPhotos[i + 1],
-      stereoRoiRect
-    );
-    if (depthMm !== null) {
-      if (maxDepthMm === null || Math.abs(depthMm) > Math.abs(maxDepthMm)) {
-        maxDepthMm = depthMm;
-      }
-    }
-  }
-
-  showStereoResult(maxDepthMm);
+  if (!stereoPointA || !stereoPointB || stereoPhotos.length < 2) return;
+  const depthMm = triangulateDepthPair(
+    stereoPhotos[0], stereoPhotos[1], stereoPointA, stereoPointB
+  );
+  showStereoResult(depthMm);
 }
 
-/* Triangulates depth from a pair of stereo photos using
-   cv.matchTemplate on the inspector-selected ROI.
-   roiRect is {x, y, w, h} in photo-1 image-space pixels.
+/* Triangulates depth from a pair of stereo photos using two
+   inspector-marked object centres (manual stereo correspondence —
+   replaces the old cv.matchTemplate localisation).
+   pointA / pointB are {x, y} in image-space pixels of photo A / photo B.
    Returns depth in mm (negative = inward dent, positive = outward
-   bulge), or null if matching fails. */
-function triangulateDepthPair(photoA, photoB, roiRect) {
-  if (!roiRect) return null;
-
-  const srcA  = cv.imread(photoA.img);
-  const srcB  = cv.imread(photoB.img);
-  const grayA = new cv.Mat();
-  const grayB = new cv.Mat();
-  const tmpl  = new cv.Mat();
-  const result= new cv.Mat();
+   bulge), or null if the geometry is invalid. */
+function triangulateDepthPair(photoA, photoB, pointA, pointB) {
+  if (!pointA || !pointB) return null;
 
   try {
-    /* ---- Baseline and geometry (unchanged from phase 18.1) ---- */
+    /* Marker centres in each photo (camera-movement reference). */
     const cxA = (photoA.marker.corners[0].x + photoA.marker.corners[1].x +
                  photoA.marker.corners[2].x + photoA.marker.corners[3].x) / 4;
     const cyA = (photoA.marker.corners[0].y + photoA.marker.corners[1].y +
@@ -3909,12 +4081,12 @@ function triangulateDepthPair(photoA, photoB, roiRect) {
 
     const baselinePx = Math.hypot(cxB - cxA, cyB - cyA);
     const baselineMm = baselinePx * photoA.marker.mmPerPixel;
-
     if (baselineMm < 1) return null;
 
-    /* Use the calibration profile of photo A's camera if available.
-       stereoPhotos entries carry their lens model so we don't depend
-       on state.lensModel, which belongs to the main measurement flow. */
+    /* Focal length from the calibration profile if available, else a
+       typical smartphone fallback. NOTE: this scales distanceMm and thus
+       deltaZ linearly — a wrong focalPx mis-scales the result even with
+       perfect point marking. Pending verification. */
     const stereoModel = photoA.lensModel || null;
     const profile    = stereoModel ? LENS_PROFILES[stereoModel] : null;
     const focalPx    = profile
@@ -3925,73 +4097,21 @@ function triangulateDepthPair(photoA, photoB, roiRect) {
     const moveDx = baselinePx > 0 ? (cxB - cxA) / baselinePx : 1;
     const moveDy = baselinePx > 0 ? (cyB - cyA) / baselinePx : 0;
 
-    /* Object centre in photo A (from inspector-drawn ROI rectangle) */
-    const tplCxA = roiRect.x + roiRect.w / 2;
-    const tplCyA = roiRect.y + roiRect.h / 2;
-
-    /* Object centre in photo B via template matching restricted to
-       a ±120 px window around the expected position.
-       Expected position = photo-A centre shifted by the marker
-       displacement (A→B). This eliminates false matches from
-       reflections or similar background regions. */
-    cv.cvtColor(srcA, grayA, cv.COLOR_RGBA2GRAY);
-    cv.cvtColor(srcB, grayB, cv.COLOR_RGBA2GRAY);
-
-    const rx = Math.max(0, Math.round(roiRect.x));
-    const ry = Math.max(0, Math.round(roiRect.y));
-    const rw = Math.min(grayA.cols - rx, Math.round(roiRect.w));
-    const rh = Math.min(grayA.rows - ry, Math.round(roiRect.h));
-    if (rw < 5 || rh < 5) return null;
-
-    const roiA = grayA.roi(new cv.Rect(rx, ry, rw, rh));
-    roiA.copyTo(tmpl);
-    roiA.delete();
-
-    const expectedCxB = tplCxA + (cxB - cxA);
-    const expectedCyB = tplCyA + (cyB - cyA);
-
-    const margin = 120;
-    const swX = Math.max(0, Math.round(expectedCxB - rw / 2 - margin));
-    const swY = Math.max(0, Math.round(expectedCyB - rh / 2 - margin));
-    const swW = Math.min(grayB.cols - swX, rw + margin * 2);
-    const swH = Math.min(grayB.rows - swY, rh + margin * 2);
-    if (swW < rw || swH < rh) return null;
-
-    const searchRoi = grayB.roi(new cv.Rect(swX, swY, swW, swH));
-    cv.matchTemplate(searchRoi, tmpl, result, cv.TM_CCOEFF_NORMED);
-    searchRoi.delete();
-
-    const minMax = cv.minMaxLoc(result);
-    if (minMax.maxVal < 0.4) {
-      console.warn(`Stereo: match score too low (${minMax.maxVal.toFixed(2)})`);
-      return null;
-    }
-
-    let tplCxB = swX + minMax.maxLoc.x + rw / 2;
-    let tplCyB = swY + minMax.maxLoc.y + rh / 2;
-
-    /* Residual parallax — both shifts in A→B convention:
-       marker:  cxB - cxA
-       object:  tplCxB - tplCxA
-       residual = object_shift - marker_shift */
-    const objShiftX    = tplCxB - tplCxA;
-    const objShiftY    = tplCyB - tplCyA;
-    const markerShiftX = cxB - cxA;
-    const markerShiftY = cyB - cyA;
-    const residualX    = objShiftX - markerShiftX;
-    const residualY    = objShiftY - markerShiftY;
-    const disparity    = residualX * moveDx + residualY * moveDy;
+    /* Object shift comes straight from the inspector's two clicks. */
+    const objShiftX = pointB.x - pointA.x;
+    const objShiftY = pointB.y - pointA.y;
+    const residualX = objShiftX - (cxB - cxA);
+    const residualY = objShiftY - (cyB - cyA);
+    const disparity = residualX * moveDx + residualY * moveDy;
 
     if (Math.abs(disparity) < 0.5) {
       console.warn('Stereo: residual too small — object appears flat.');
       return null;
     }
 
-    /* deltaZ = disparity * distanceMm / baselinePx
-       This is the correct thin-lens stereo formula when disparity
-       is measured relative to the marker (baseline reference).
-       Positive disparity = object shifted more than marker = outward.
-       Negative = inward (dent). */
+    /* deltaZ = disparity * distanceMm / baselinePx (thin-lens stereo,
+       disparity measured relative to the marker). Positive = outward,
+       negative = inward (dent). */
     const deltaZ = (disparity * distanceMm) / baselinePx;
 
     if (Math.abs(deltaZ) > distanceMm * 0.40) {
@@ -4004,10 +4124,6 @@ function triangulateDepthPair(photoA, photoB, roiRect) {
   } catch (err) {
     console.warn('Stereo triangulation failed:', err);
     return null;
-  } finally {
-    srcA.delete(); srcB.delete();
-    grayA.delete(); grayB.delete();
-    tmpl.delete(); result.delete();
   }
 }
 
